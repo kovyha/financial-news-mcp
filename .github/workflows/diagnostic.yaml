@@ -1,0 +1,46 @@
+name: Diagnostic Agent (Daily)
+
+# Scheduled diagnostic run to check error logs.
+#
+# IMPORTANT: This workflow is disabled by default.
+# To enable: Go to Actions tab → select this workflow → "Enable workflow"
+#
+# Once enabled, runs daily at 17:00 UTC (5pm) to check the previous day's error log.
+# Manual trigger: Actions tab → "Diagnostic Agent" → "Run workflow"
+on:
+  schedule:
+    # 17:00 UTC = 5 PM UTC
+    - cron: '0 17 * * *'
+  # Allow manual trigger for ad-hoc diagnostics
+  workflow_dispatch:
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Run Diagnostic Agent
+        env:
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+        run: |
+          uv run python -m financial_news.diagnostic
+
+      # Output is visible in GitHub Actions logs.
+      # To act on diagnostics, a human can:
+      #   1. Review the workflow output
+      #   2. Manually create a fix if needed
+      #   3. Request review and merge

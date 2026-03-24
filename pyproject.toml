@@ -1,17 +1,37 @@
 [project]
 name = "financial-news-mcp"
 version = "0.1.0"
-description = "Add your description here"
+description = "MCP-based financial news agent using anomaly detection and LLM-assisted analysis"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "finnhub-python>=2.4.27",
     "mcp>=1.26.0",
     "numpy>=1.24",
-    "tavily-python>=0.7.23",
 ]
 
 [dependency-groups]
 dev = [
+    "pytest-cov>=5.0",
     "numpy>=1.24",
+    "pytest>=7.0",
+    "ruff>=0.6.0",
 ]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["financial_news"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.coverage.report]
+fail_under = 95
+

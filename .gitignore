@@ -1,5 +1,22 @@
 .env
 *.env
+config.toml
 __pycache__/
 .venv/
 *.pyc
+
+# Test and lint caches
+.pytest_cache/
+.ruff_cache/
+
+# Packaging/build artifacts
+*.egg-info/
+build/
+dist/
+
+# Coverage artifacts
+.coverage
+htmlcov/
+
+# Log files
+logs/

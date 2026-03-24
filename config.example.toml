@@ -1,0 +1,26 @@
+# financial-news-mcp configuration
+#
+# Copy this file to config.toml and adjust values as needed.
+# config.toml is gitignored — do not commit it.
+#
+# FINNHUB_API_KEY is not configured here — keep secrets in the environment.
+# Example: export FINNHUB_API_KEY='your_key'
+
+[logging]
+
+# Directory where log files are written (relative to working directory).
+log_dir = "logs"
+
+# Maximum size of each log file in bytes before it is rolled and compressed.
+# Default: 10485760 (10 MB)
+max_bytes = 10485760
+
+# Base name for log files.
+# Produces <filename>.log (all levels) and <filename>.error.log (errors only).
+filename = "financial_news"
+
+# Log level: INFO (normal operation) or DEBUG (verbose, for development).
+# INFO  — logs tool invocations, computed statistics, and errors.
+# DEBUG — additionally logs raw fetch requests, article counts, and headlines
+#         passed to the model.
+level = "INFO"

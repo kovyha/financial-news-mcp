@@ -1,0 +1,30 @@
+# CODEOWNERS for financial-news-mcp
+#
+# This file specifies code owners for GitHub's review system.
+# All pull requests modifying these files require approval from the @maintainers team.
+# See MAINTAINERS.md for team members.
+#
+# To set up the team:
+#   1. Create a GitHub team called "maintainers" in your organization
+#   2. Add members listed in MAINTAINERS.md to that team
+#   3. Enable branch protection on main requiring review from @maintainers
+#
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Governance and agent configuration — requires human review (protected by CI check)
+docs/AGENTS.md @KovyHaOrg/maintainers
+docs/SKILL.md @KovyHaOrg/maintainers
+.github/workflows/ @KovyHaOrg/maintainers
+uv.lock @KovyHaOrg/maintainers
+
+# Core application code — human review recommended for clarity
+financial_news/ @KovyHaOrg/maintainers
+
+# Tests — human review for coverage and edge cases
+tests/ @KovyHaOrg/maintainers
+
+# Documentation — human review for accuracy
+docs/ @KovyHaOrg/maintainers
+README.md @KovyHaOrg/maintainers
+CONTRIBUTING.md @KovyHaOrg/maintainers
+MAINTAINERS.md @KovyHaOrg/maintainers

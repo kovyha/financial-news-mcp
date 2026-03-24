@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  protected-files:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Block protected file changes
+        run: |
+          if git diff origin/main...HEAD --name-only 2>/dev/null | grep -E '(docs/AGENTS\.md|docs/SKILL\.md|\.github/workflows/ci\.yaml|uv\.lock)'; then
+            echo "❌ ERROR: Protected files were modified."
+            echo ""
+            echo "Protected files require explicit human review and cannot be changed by agents:"
+            echo "  - docs/AGENTS.md (agent governance catalog)"
+            echo "  - docs/SKILL.md (agent behavioral constraints)"
+            echo "  - .github/workflows/ci.yaml (CI configuration)"
+            echo "  - uv.lock (locked dependencies)"
+            echo ""
+            echo "If this change is intentional, add [ADMIN-OVERRIDE] to your commit message"
+            echo "and request explicit human review."
+            exit 1
+          fi
+          echo "✅ No protected files modified."
+
+  lint-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Format check
+        run: uv run ruff format --check .
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Test
+        run: uv run pytest --cov=financial_news --cov-report=term-missing -q
