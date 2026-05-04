@@ -2,7 +2,7 @@ import gzip
 import logging
 from datetime import datetime
 
-from financial_news.server import _TimestampRotatingFileHandler
+from financial_news.log_setup import _TimestampRotatingFileHandler
 
 
 def test_should_rollover_false_when_under_limit(tmp_path):

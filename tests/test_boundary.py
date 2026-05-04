@@ -8,7 +8,7 @@ layer (Claude via MCP).
 
 import inspect
 
-from financial_news import server
+from financial_news import analysis, server
 
 
 class TestBoundaryEnforcement:
@@ -45,17 +45,17 @@ class TestBoundaryEnforcement:
     def test_deterministic_functions_are_testable(self):
         """Verify core deterministic functions are pure and testable."""
         # Test that calculate_z_score has no side effects
-        result1 = server.calculate_z_score(10, 5.0, 2.0)
-        result2 = server.calculate_z_score(10, 5.0, 2.0)
+        result1 = analysis.calculate_z_score(10, 5.0, 2.0)
+        result2 = analysis.calculate_z_score(10, 5.0, 2.0)
         assert result1 == result2, "calculate_z_score should be deterministic"
 
     def test_threshold_constants_exist(self):
         """Verify classification thresholds are defined as constants."""
-        assert hasattr(server, "THRESHOLD_ELEVATED"), "THRESHOLD_ELEVATED not defined"
-        assert hasattr(server, "THRESHOLD_UNUSUAL"), "THRESHOLD_UNUSUAL not defined"
-        assert isinstance(server.THRESHOLD_ELEVATED, (int, float))
-        assert isinstance(server.THRESHOLD_UNUSUAL, (int, float))
-        assert server.THRESHOLD_ELEVATED < server.THRESHOLD_UNUSUAL, (
+        assert hasattr(analysis, "THRESHOLD_ELEVATED"), "THRESHOLD_ELEVATED not defined"
+        assert hasattr(analysis, "THRESHOLD_UNUSUAL"), "THRESHOLD_UNUSUAL not defined"
+        assert isinstance(analysis.THRESHOLD_ELEVATED, (int, float))
+        assert isinstance(analysis.THRESHOLD_UNUSUAL, (int, float))
+        assert analysis.THRESHOLD_ELEVATED < analysis.THRESHOLD_UNUSUAL, (
             "Thresholds out of order"
         )
 
@@ -87,15 +87,15 @@ class TestDeterministicLayer:
             (10, 5.0, 0.0),
         ]
         for recent, mean, std in test_cases:
-            results = [server.calculate_z_score(recent, mean, std) for _ in range(3)]
+            results = [analysis.calculate_z_score(recent, mean, std) for _ in range(3)]
             assert len(set(str(r) for r in results)) == 1, (
                 f"calculate_z_score not deterministic for ({recent}, {mean}, {std})"
             )
 
     def test_fetch_news_returns_consistent_structure(self, monkeypatch):
         """Verify fetch_news returns a consistent list structure."""
-        monkeypatch.setattr(server.client, "company_news", lambda symbol, **kw: [])
-        result = server.fetch_news("TEST", 7)
+        monkeypatch.setattr(analysis.client, "company_news", lambda symbol, **kw: [])
+        result = analysis.fetch_news("TEST", 7)
         assert isinstance(result, list), "fetch_news should return a list"
 
     def test_health_check_contains_no_inference(self):

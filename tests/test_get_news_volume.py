@@ -5,10 +5,10 @@ from datetime import datetime, timedelta
 
 import pytest
 
-# Ensure FINNHUB_API_KEY is set so importing server doesn't error
+# Ensure FINNHUB_API_KEY is set so importing analysis doesn't error
 os.environ.setdefault("FINNHUB_API_KEY", "test")
 
-from financial_news import server
+from financial_news import analysis, server
 
 
 def make_articles(count, day_offset=0):
@@ -26,26 +26,26 @@ def make_baseline_from_counts(counts):
 
 
 def test_fetch_news_returns_empty_list_for_empty_response(monkeypatch):
-    monkeypatch.setattr(server.client, "company_news", lambda symbol, _from, to: [])
-    assert server.fetch_news("FAKE", 7) == []
+    monkeypatch.setattr(analysis.client, "company_news", lambda symbol, _from, to: [])
+    assert analysis.fetch_news("FAKE", 7) == []
 
 
 def test_fetch_news_returns_api_response(monkeypatch):
     expected = make_articles(2)
     monkeypatch.setattr(
-        server.client, "company_news", lambda symbol, _from, to: expected
+        analysis.client, "company_news", lambda symbol, _from, to: expected
     )
-    assert server.fetch_news("FAKE", 7) == expected
+    assert analysis.fetch_news("FAKE", 7) == expected
 
 
 def test_fetch_news_wraps_upstream_errors(monkeypatch):
     def raise_upstream_error(symbol, _from, to):
         raise Exception("arbitrary upstream failure")
 
-    monkeypatch.setattr(server.client, "company_news", raise_upstream_error)
+    monkeypatch.setattr(analysis.client, "company_news", raise_upstream_error)
 
     with pytest.raises(RuntimeError, match="Failed to fetch news from Finnhub"):
-        server.fetch_news("FAKE", 7)
+        analysis.fetch_news("FAKE", 7)
 
 
 @pytest.mark.parametrize(
@@ -65,15 +65,15 @@ def test_get_news_volume_classification(monkeypatch, z_value, expected):
     def fake_fetch(symbol, days):
         return recent if days == 1 else baseline
 
-    monkeypatch.setattr(server, "fetch_news", fake_fetch)
-    monkeypatch.setattr(server, "calculate_z_score", lambda rc, m, s: z_value)
+    monkeypatch.setattr(analysis, "fetch_news", fake_fetch)
+    monkeypatch.setattr(analysis, "calculate_z_score", lambda *_: z_value)
 
     out = server.get_news_volume("FAKE")
     assert expected in out
 
 
 def test_get_news_volume_with_no_data(monkeypatch):
-    monkeypatch.setattr(server, "fetch_news", lambda symbol, days: [])
+    monkeypatch.setattr(analysis, "fetch_news", lambda *_, **__: [])
 
     out = server.get_news_volume("FAKE")
 
@@ -94,7 +94,7 @@ def test_get_news_volume_with_no_baseline_but_recent(monkeypatch):
     def fake_fetch(symbol, days):
         return recent if days == 1 else []
 
-    monkeypatch.setattr(server, "fetch_news", fake_fetch)
+    monkeypatch.setattr(analysis, "fetch_news", fake_fetch)
 
     out = server.get_news_volume("FAKE")
 
@@ -105,15 +105,17 @@ def test_get_news_volume_with_no_baseline_but_recent(monkeypatch):
 
 
 def test_server_import_fails_with_empty_api_key(monkeypatch):
+    sys.modules.pop("financial_news.analysis", None)
     sys.modules.pop("financial_news.server", None)
     monkeypatch.setenv("FINNHUB_API_KEY", "")
 
     with pytest.raises(RuntimeError, match="FINNHUB_API_KEY is not set"):
-        importlib.import_module("financial_news.server")
+        importlib.import_module("financial_news.analysis")
 
     monkeypatch.setenv("FINNHUB_API_KEY", "test")
+    sys.modules.pop("financial_news.analysis", None)
     sys.modules.pop("financial_news.server", None)
-    importlib.import_module("financial_news.server")
+    importlib.import_module("financial_news.analysis")
 
 
 @pytest.mark.parametrize(

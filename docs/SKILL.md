@@ -113,5 +113,5 @@ When a new agent role is introduced:
 1. Add an entry to `docs/AGENTS.md` with purpose, trigger, scope, and constraints.
 2. Distinguish between autonomous agents (require human approval) and tools (pure functions).
 3. Update this file if the new role requires cross-cutting behavioral rules not already
-   covered.
+covered.
 4. Update CI or add tests if the agent affects repository behaviour.
