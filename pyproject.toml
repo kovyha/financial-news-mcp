@@ -8,6 +8,7 @@ dependencies = [
     "finnhub-python>=2.4.27",
     "mcp>=1.26.0",
     "numpy>=1.24",
+    "pandas>=2.0",
 ]
 
 [dependency-groups]

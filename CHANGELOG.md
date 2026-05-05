@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-05-04 — EWM baseline, config-driven thresholds, calendar-day window (by kovyha)
+
+- Replaced the 7-day simple mean/std baseline with a 30-day exponentially weighted mean (EWM) baseline using pandas `ewm(span=30, adjust=True)`.
+- Baseline uses a 30 calendar-day window. News activity is not gated by exchange hours; weekends and holidays are included so all news days contribute equally to the baseline.
+- Moved all hardcoded analysis constants out of `analysis.py` and into `config.py` / `config.toml`:
+  - `baseline_days` (default: 30) — number of calendar days in the EWM window.
+  - `threshold_elevated` (default: 2.0) — z-score above which volume is elevated.
+  - `threshold_unusual` (default: 3.0) — z-score above which volume is unusual.
+- Added `AnalysisConfig` dataclass to `config.py` with validation: unknown keys raise, `baseline_days` must be > 0, `threshold_elevated` must be < `threshold_unusual`.
+- Updated `fetch_news` signature from `(symbol, days: int)` to `(symbol, from_date: date, to_date: date)` for explicit date control.
+- Server output labels now reflect the configured baseline window dynamically (e.g. `Mean (30-day EWM)`).
+- Added 6 new `test_config.py` tests covering the `[analysis]` config section (defaults, overrides, unknown keys, ordering violation, zero baseline).
+- Updated `test_get_news_volume.py` and `test_boundary.py` for the new `fetch_news` signature and output label strings.
+- Added `pandas>=2.0` as a project dependency; EWM is delegated to `pd.Series.ewm()` rather than a custom NumPy implementation.
+
 ## 2026-03-24 — Packaging, validation, documentation, and governance refinement (by kovyha)
 
 - Refactored the project into an installable package structure under `financial_news/`.

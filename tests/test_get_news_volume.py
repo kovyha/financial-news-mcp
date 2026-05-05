@@ -1,7 +1,7 @@
 import importlib
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 
@@ -27,7 +27,7 @@ def make_baseline_from_counts(counts):
 
 def test_fetch_news_returns_empty_list_for_empty_response(monkeypatch):
     monkeypatch.setattr(analysis.client, "company_news", lambda symbol, _from, to: [])
-    assert analysis.fetch_news("FAKE", 7) == []
+    assert analysis.fetch_news("FAKE", date.today(), date.today()) == []
 
 
 def test_fetch_news_returns_api_response(monkeypatch):
@@ -35,7 +35,7 @@ def test_fetch_news_returns_api_response(monkeypatch):
     monkeypatch.setattr(
         analysis.client, "company_news", lambda symbol, _from, to: expected
     )
-    assert analysis.fetch_news("FAKE", 7) == expected
+    assert analysis.fetch_news("FAKE", date.today(), date.today()) == expected
 
 
 def test_fetch_news_wraps_upstream_errors(monkeypatch):
@@ -45,7 +45,7 @@ def test_fetch_news_wraps_upstream_errors(monkeypatch):
     monkeypatch.setattr(analysis.client, "company_news", raise_upstream_error)
 
     with pytest.raises(RuntimeError, match="Failed to fetch news from Finnhub"):
-        analysis.fetch_news("FAKE", 7)
+        analysis.fetch_news("FAKE", date.today(), date.today())
 
 
 @pytest.mark.parametrize(
@@ -62,8 +62,8 @@ def test_get_news_volume_classification(monkeypatch, z_value, expected):
     baseline = make_baseline_from_counts([1, 1, 1, 1, 1, 1, 1])
     recent = make_articles(2, day_offset=0)
 
-    def fake_fetch(symbol, days):
-        return recent if days == 1 else baseline
+    def fake_fetch(symbol, from_date, to_date):
+        return recent if from_date == to_date else baseline
 
     monkeypatch.setattr(analysis, "fetch_news", fake_fetch)
     monkeypatch.setattr(analysis, "calculate_z_score", lambda *_: z_value)
@@ -78,8 +78,8 @@ def test_get_news_volume_with_no_data(monkeypatch):
     out = server.get_news_volume("FAKE")
 
     assert "News articles (last 24hrs): 0" in out
-    assert "Mean (7-day): 0.0" in out
-    assert "Standard Deviation (7-day, delta degree of freedom=1): 0.0" in out
+    assert "Mean (30-day EWM): 0.0" in out
+    assert "Std Dev (30-day EWM): 0.0" in out
     assert "Z-score: 0.0" in out
     assert "Normal news volume" in out
     assert (
@@ -91,15 +91,15 @@ def test_get_news_volume_with_no_data(monkeypatch):
 def test_get_news_volume_with_no_baseline_but_recent(monkeypatch):
     recent = make_articles(3)
 
-    def fake_fetch(symbol, days):
-        return recent if days == 1 else []
+    def fake_fetch(symbol, from_date, to_date):
+        return recent if from_date == to_date else []
 
     monkeypatch.setattr(analysis, "fetch_news", fake_fetch)
 
     out = server.get_news_volume("FAKE")
 
     assert "News articles (last 24hrs): 3" in out
-    assert "Mean (7-day): 0.0" in out
+    assert "Mean (30-day EWM): 0.0" in out
     assert "Z-score: inf" in out
     assert "Unusual news volume detected" in out
 

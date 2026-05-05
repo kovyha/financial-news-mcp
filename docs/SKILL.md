@@ -48,8 +48,7 @@ this system. Agents must not:
 - Move business logic (z-score computation, classification thresholds, Finnhub fetch
   behaviour) into prompts, LLM calls, or agent reasoning steps.
 - Move LLM interpretation or contextual reasoning into the deterministic layer.
-- Modify classification thresholds (`z < 2`, `z < 3`) without explicit human review and
-  a documented rationale.
+- Modify classification thresholds (`threshold_elevated`, `threshold_unusual` in `config.toml` or their defaults in `AnalysisConfig`) without explicit human review and a documented rationale.
 
 Any change that touches this boundary must be flagged explicitly in the PR or change
 summary, and reviewed by a human before merge.
@@ -100,8 +99,8 @@ sequence:
 When reviewing changes to `financial_news/server.py`, verify:
 
 - [ ] Does `get_news_volume()` or its helpers call any LLM API? (Must be NO)
-- [ ] Are classification thresholds (z < 2, z < 3) only modified via explicit constant?
-      (Not inlined, not in prompts)
+- [ ] Are classification thresholds only modified via `AnalysisConfig` in `config.py` or `config.toml`?
+      (Not inlined in code, not in prompts)
 - [ ] Are all data transformations in the deterministic layer testable and reproducible?
 - [ ] If thresholds changed: Is there a clear justification in the commit message or PR?
 - [ ] Does the docstring in `get_news_volume()` still accurately describe the boundary?

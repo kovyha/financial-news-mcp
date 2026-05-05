@@ -15,7 +15,7 @@ For the canonical contributor workflow and validation commands, see `CONTRIBUTIN
 ## Key files
 - `financial_news/` — package directory:
   - `server.py` — MCP server exposing tools (`get_news_volume`, `health_check`).
-  - `config.py` — configuration loader for logging and runtime settings.
+  - `config.py` — configuration loader for logging and analysis settings (baseline window, classification thresholds).
   - `diagnostic.py` — diagnostic agent for error log analysis.
   - `__init__.py` — package initialization.
 - `tests/` — pytest test files and fixtures:

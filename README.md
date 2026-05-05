@@ -22,15 +22,16 @@ This project is built as a Python MCP server with a small, focused signal-detect
 
 - `financial_news/server.py` exposes the MCP tool and orchestrates the workflow.
 - Finnhub provides live company news data.
-- NumPy is used to calculate the mean, standard deviation, and z-score.
-- The z-score methodology is used to compare recent news activity against a recent baseline and classify it as normal, elevated, or unusual.
+- pandas is used to compute the 30-day exponentially weighted mean (EWM) and standard deviation; z-score classification uses pure Python.
+- The z-score methodology compares today's article count against a 30-day EWM baseline and classifies the result as normal, elevated, or unusual.
+- Classification thresholds and the baseline window are configurable via `config.toml`.
 - Claude sits on top of that signal layer and can explain what the spike may mean in context.
 
 ### Deterministic and LLM layers
 
 The architecture maintains an explicit boundary between two layers:
 
-**Deterministic signal layer** (`get_news_volume`): fetches data from Finnhub, computes article counts, mean, standard deviation, and z-score using NumPy, and classifies the result against fixed thresholds (z < 2 = normal, z < 3 = elevated, z ≥ 3 = unusual). No model inference occurs here. The output is a structured, reproducible string.
+**Deterministic signal layer** (`get_news_volume`): fetches data from Finnhub, computes article counts, a 30-day exponentially weighted mean and standard deviation using pandas, and classifies the result against configurable thresholds (default: z < 2 = normal, z < 3 = elevated, z ≥ 3 = unusual). No model inference occurs here. The output is a structured, reproducible string.
 
 **LLM reasoning layer** (Claude, via MCP): receives that structured output as tool context and interprets what a statistically significant spike may mean — drawing on the headlines, market context, and its broader knowledge.
 

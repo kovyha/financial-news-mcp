@@ -5,18 +5,23 @@ from collections import Counter
 from datetime import date, datetime, timedelta
 
 import finnhub
-import numpy as np
+import pandas as pd
+
+from financial_news.config import load_config
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Classification thresholds
+# Configuration-sourced constants
 # ---------------------------------------------------------------------------
-# These thresholds classify news volume as normal, elevated, or unusual.
-# Changes to these values require explicit human review. See SKILL.md.
+# Values default to config.toml [analysis] section; fall back to dataclass
+# defaults when the file is absent. Keep these as module-level names so tests
+# and boundary checks can reference them directly.
 
-THRESHOLD_ELEVATED = 2  # z-score threshold for elevated news volume
-THRESHOLD_UNUSUAL = 3  # z-score threshold for unusual news volume
+_cfg = load_config()
+THRESHOLD_ELEVATED: float = _cfg.analysis.threshold_elevated
+THRESHOLD_UNUSUAL: float = _cfg.analysis.threshold_unusual
+BASELINE_DAYS: int = _cfg.analysis.baseline_days
 
 
 def _validate_thresholds() -> None:
@@ -26,9 +31,10 @@ def _validate_thresholds() -> None:
         f"must be < unusual ({THRESHOLD_UNUSUAL})"
     )
     logger.info(
-        "Classification thresholds loaded: elevated=%.1f, unusual=%.1f",
+        "Classification thresholds loaded: elevated=%.1f unusual=%.1f baseline_days=%d",
         THRESHOLD_ELEVATED,
         THRESHOLD_UNUSUAL,
+        BASELINE_DAYS,
     )
 
 
@@ -44,22 +50,35 @@ client = finnhub.Client(api_key=api_key)
 _validate_thresholds()
 
 
-def fetch_news(symbol: str, days: int) -> list:
-    today = date.today()
-    to_date = today.isoformat()
-    from_date = (today - timedelta(days=days)).isoformat()
+def _ewma_mean_std(values: list[float], span: int) -> tuple[float, float]:
+    """Return the exponentially weighted mean and std over values (adjust=True)."""
+    if not values:
+        return 0.0, 0.0
+    ewm = pd.Series(values, dtype=float).ewm(span=span, adjust=True)
+    mean = float(ewm.mean().iloc[-1])
+    std = ewm.std().iloc[-1]
+    return mean, 0.0 if pd.isna(std) else float(std)
+
+
+def fetch_news(symbol: str, from_date: date, to_date: date) -> list:
     logger.debug(
-        "fetch_news symbol=%s days=%d from=%s to=%s", symbol, days, from_date, to_date
+        "fetch_news symbol=%s from=%s to=%s",
+        symbol,
+        from_date.isoformat(),
+        to_date.isoformat(),
     )
     start = time.time()
     try:
-        response = client.company_news(symbol, _from=from_date, to=to_date)
+        response = client.company_news(
+            symbol, _from=from_date.isoformat(), to=to_date.isoformat()
+        )
     except Exception as exc:
         elapsed = time.time() - start
         logger.exception(
-            "fetch_news failed symbol=%s days=%d elapsed=%.2fs error=%s",
+            "fetch_news failed symbol=%s from=%s to=%s elapsed=%.2fs error=%s",
             symbol,
-            days,
+            from_date.isoformat(),
+            to_date.isoformat(),
             elapsed,
             exc,
         )
@@ -70,9 +89,10 @@ def fetch_news(symbol: str, days: int) -> list:
     result = response if response else []
     elapsed = time.time() - start
     logger.info(
-        "fetch_news symbol=%s days=%d articles_returned=%d elapsed=%.2fs",
+        "fetch_news symbol=%s from=%s to=%s articles_returned=%d elapsed=%.2fs",
         symbol,
-        days,
+        from_date.isoformat(),
+        to_date.isoformat(),
         len(result),
         elapsed,
     )
@@ -103,20 +123,26 @@ def compute_volume_stats(symbol: str) -> dict:
     Returns a dict with keys: recent_count, mean, std, z_score, classification,
     headlines, baseline_counts.
     """
-    recent = fetch_news(symbol, days=1)
-    baseline = fetch_news(symbol, days=7)
+    today = date.today()
+    yesterday = today - timedelta(days=1)
+    baseline_start = today - timedelta(days=BASELINE_DAYS)
 
-    baseline_counts = list(
-        Counter(
-            datetime.fromtimestamp(article["datetime"]).date() for article in baseline
-        ).values()
+    recent = fetch_news(symbol, from_date=today, to_date=today)
+    baseline_articles = fetch_news(symbol, from_date=baseline_start, to_date=yesterday)
+
+    article_date_counts = Counter(
+        datetime.fromtimestamp(article["datetime"]).date()
+        for article in baseline_articles
     )
-    if baseline_counts:
-        mean = float(np.mean(baseline_counts))
-        std = float(np.std(baseline_counts, ddof=1))
-    else:
-        mean = 0.0
-        std = 0.0
+
+    # One count per calendar day in the window; zero-fill days with no coverage.
+    baseline_counts: list[float] = []
+    current = baseline_start
+    while current <= yesterday:
+        baseline_counts.append(float(article_date_counts.get(current, 0)))
+        current += timedelta(days=1)
+
+    mean, std = _ewma_mean_std(baseline_counts, span=BASELINE_DAYS)
 
     recent_count = len(recent)
     z_score = calculate_z_score(recent_count, mean, std)
@@ -129,7 +155,7 @@ def compute_volume_stats(symbol: str) -> dict:
         classification = "unusual"
 
     logger.info(
-        "compute_volume_stats symbol=%s recent_count=%d mean=%.2f std=%.2f "
+        "compute_volume_stats symbol=%s recent_count=%d ewm_mean=%.2f ewm_std=%.2f "
         "z_score=%.2f classification=%s",
         symbol,
         recent_count,

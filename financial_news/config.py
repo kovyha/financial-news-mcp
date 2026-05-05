@@ -21,8 +21,16 @@ class LoggingConfig:
 
 
 @dataclass
+class AnalysisConfig:
+    baseline_days: int = 30
+    threshold_elevated: float = 2.0
+    threshold_unusual: float = 3.0
+
+
+@dataclass
 class Config:
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
 
 
 def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
@@ -52,11 +60,44 @@ def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
             f"config.toml [logging] level must be INFO or DEBUG, got: {level!r}"
         )
 
+    analysis_data = data.get("analysis", {})
+
+    unknown = analysis_data.keys() - AnalysisConfig.__dataclass_fields__.keys()
+    if unknown:
+        raise ValueError(
+            f"config.toml [analysis] contains unrecognised keys: {sorted(unknown)}"
+        )
+
+    baseline_days = int(
+        analysis_data.get("baseline_days", AnalysisConfig.baseline_days)
+    )
+    threshold_elevated = float(
+        analysis_data.get("threshold_elevated", AnalysisConfig.threshold_elevated)
+    )
+    threshold_unusual = float(
+        analysis_data.get("threshold_unusual", AnalysisConfig.threshold_unusual)
+    )
+
+    if baseline_days <= 0:
+        raise ValueError(
+            f"config.toml [analysis] baseline_days must be > 0, got: {baseline_days}"
+        )
+    if threshold_elevated >= threshold_unusual:
+        raise ValueError(
+            f"config.toml [analysis] threshold_elevated ({threshold_elevated}) "
+            f"must be less than threshold_unusual ({threshold_unusual})"
+        )
+
     return Config(
         logging=LoggingConfig(
             log_dir=log_data.get("log_dir", LoggingConfig.log_dir),
             max_bytes=log_data.get("max_bytes", LoggingConfig.max_bytes),
             filename=log_data.get("filename", LoggingConfig.filename),
             level=level,
-        )
+        ),
+        analysis=AnalysisConfig(
+            baseline_days=baseline_days,
+            threshold_elevated=threshold_elevated,
+            threshold_unusual=threshold_unusual,
+        ),
     )

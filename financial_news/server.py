@@ -7,7 +7,7 @@ from mcp.server.fastmcp import FastMCP
 # log_setup must be imported before analysis so handlers are attached
 # to the financial_news logger before analysis module-level code runs.
 from financial_news import log_setup  # noqa: F401
-from financial_news.analysis import client, compute_volume_stats
+from financial_news.analysis import BASELINE_DAYS, client, compute_volume_stats
 
 logger = logging.getLogger(__name__)
 
@@ -79,13 +79,12 @@ def get_news_volume(symbol: str) -> str:
     z_score = stats["z_score"]
     classification = stats["classification"]
     headlines = stats["headlines"]
-    baseline_counts = stats["baseline_counts"]
 
     summary_lines = [
         f"Symbol: {symbol}",
         f"News articles (last 24hrs): {recent_count}",
-        f"Mean (7-day): {mean:.1f}",
-        f"Standard Deviation (7-day, delta degree of freedom=1): {std:.1f}",
+        f"Mean ({BASELINE_DAYS}-day EWM): {mean:.1f}",
+        f"Std Dev ({BASELINE_DAYS}-day EWM): {std:.1f}",
         f"Z-score: {z_score:.1f}",
     ]
 
@@ -96,7 +95,7 @@ def get_news_volume(symbol: str) -> str:
     else:
         summary_lines.append("🚨 Unusual news volume detected")
 
-    if recent_count == 0 and not baseline_counts:
+    if recent_count == 0 and mean == 0.0:
         summary_lines.append(
             "No news data found for this symbol. This may mean the ticker is "
             "invalid, unsupported, or simply has no recent coverage."

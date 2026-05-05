@@ -164,7 +164,7 @@ a structured signal for Claude to reason over.
 
 **Constraints:**
 - Deterministic only. Fetches Finnhub data, computes article counts, mean, standard
-  deviation, and z-score using NumPy, classifies the result against fixed thresholds,
+  deviation (via pandas EWM) and z-score, classifies the result against configurable thresholds,
   and returns a structured string.
 - No model inference occurs inside this tool. All LLM reasoning begins after the tool
   returns its output.
