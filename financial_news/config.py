@@ -25,6 +25,7 @@ class AnalysisConfig:
     baseline_days: int = 30
     threshold_elevated: float = 2.0
     threshold_unusual: float = 3.0
+    z_score_cap: float = 99.0
 
 
 _DEFAULT_MONITOR_TICKERS: list[str] = [
@@ -44,6 +45,13 @@ _DEFAULT_MONITOR_TICKERS: list[str] = [
 @dataclass
 class MonitorConfig:
     tickers: list[str] = field(default_factory=lambda: list(_DEFAULT_MONITOR_TICKERS))
+    snapshot_path: str = "/tmp/financial_news_snapshot.json"
+
+
+@dataclass
+class BriefingConfig:
+    headline_days: int = 7
+    max_headlines: int = 50
 
 
 @dataclass
@@ -51,6 +59,7 @@ class Config:
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
     monitor: MonitorConfig = field(default_factory=MonitorConfig)
+    briefing: BriefingConfig = field(default_factory=BriefingConfig)
 
 
 def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
@@ -97,6 +106,7 @@ def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
     threshold_unusual = float(
         analysis_data.get("threshold_unusual", AnalysisConfig.threshold_unusual)
     )
+    z_score_cap = float(analysis_data.get("z_score_cap", AnalysisConfig.z_score_cap))
 
     if baseline_days <= 0:
         raise ValueError(
@@ -106,6 +116,10 @@ def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
         raise ValueError(
             f"config.toml [analysis] threshold_elevated ({threshold_elevated}) "
             f"must be less than threshold_unusual ({threshold_unusual})"
+        )
+    if z_score_cap <= 0:
+        raise ValueError(
+            f"config.toml [analysis] z_score_cap must be > 0, got: {z_score_cap}"
         )
 
     monitor_data = data.get("monitor", {})
@@ -120,6 +134,32 @@ def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
     if not tickers:
         raise ValueError("config.toml [monitor] tickers must not be empty")
 
+    snapshot_path = str(monitor_data.get("snapshot_path", MonitorConfig.snapshot_path))
+
+    briefing_data = data.get("briefing", {})
+
+    unknown = briefing_data.keys() - BriefingConfig.__dataclass_fields__.keys()
+    if unknown:
+        raise ValueError(
+            f"config.toml [briefing] contains unrecognised keys: {sorted(unknown)}"
+        )
+
+    headline_days = int(
+        briefing_data.get("headline_days", BriefingConfig.headline_days)
+    )
+    max_headlines = int(
+        briefing_data.get("max_headlines", BriefingConfig.max_headlines)
+    )
+
+    if headline_days <= 0:
+        raise ValueError(
+            f"config.toml [briefing] headline_days must be > 0, got: {headline_days}"
+        )
+    if max_headlines <= 0:
+        raise ValueError(
+            f"config.toml [briefing] max_headlines must be > 0, got: {max_headlines}"
+        )
+
     return Config(
         logging=LoggingConfig(
             log_dir=log_data.get("log_dir", LoggingConfig.log_dir),
@@ -131,6 +171,11 @@ def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
             baseline_days=baseline_days,
             threshold_elevated=threshold_elevated,
             threshold_unusual=threshold_unusual,
+            z_score_cap=z_score_cap,
         ),
-        monitor=MonitorConfig(tickers=tickers),
+        monitor=MonitorConfig(tickers=tickers, snapshot_path=snapshot_path),
+        briefing=BriefingConfig(
+            headline_days=headline_days,
+            max_headlines=max_headlines,
+        ),
     )

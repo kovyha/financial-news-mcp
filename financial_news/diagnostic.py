@@ -3,7 +3,7 @@ Diagnostic agent for financial-news-mcp.
 
 This module investigates anomalous behavior: unexpected LLM output, bad Finnhub data,
 or errors surfaced in the error log. It can be run:
-  - Automatically on a schedule (via .github/workflows/diagnostic.yaml)
+  - Automatically after monitor failures (via .github/workflows/monitor.yaml)
   - Manually for urgent or complex incidents
 
 The diagnostic agent reads error logs, produces a written diagnosis, and proposes
@@ -11,14 +11,95 @@ fixes where causes are identified. All changes require explicit human approval.
 """
 
 import logging
+import os
 import sys
 from datetime import date
 from datetime import datetime as dt
 from pathlib import Path
 
+import anthropic
+
 from financial_news.config import load_config
 
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
 logger = logging.getLogger(__name__)
+
+
+def _analyze_with_llm(error_lines: list[str], project_root: Path) -> str:
+    """Call Claude to reason about error lines, reading source files as needed."""
+    client = anthropic.Anthropic()
+    tools = [
+        {
+            "name": "read_file",
+            "description": (
+                "Read a source file from the financial-news-mcp project "
+                "to understand the code that produced the errors."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": (
+                            "Relative path from the project root, "
+                            "e.g. 'financial_news/analysis.py'"
+                        ),
+                    }
+                },
+                "required": ["path"],
+            },
+        }
+    ]
+    error_text = "\n".join(error_lines)
+    prompt = (
+        "You are diagnosing errors in financial-news-mcp, an MCP server that"
+        " fetches Finnhub news and computes 30-day EWM z-scores to detect"
+        " unusual stock ticker activity.\n\n"
+        "Key files: financial_news/analysis.py (z-score logic),"
+        " financial_news/server.py (MCP tools),"
+        " financial_news/config.py (thresholds),"
+        " financial_news/monitor.py (daily watchlist runner).\n\n"
+        f"Error log entries from today:\n\n{error_text}\n\n"
+        "Read the relevant source files, identify the root cause,"
+        " and propose a specific fix. If changes require human review"
+        " before merging, say so."
+    )
+    messages = [{"role": "user", "content": prompt}]
+    while True:
+        response = client.messages.create(
+            model="claude-opus-4-7",
+            max_tokens=8192,
+            thinking={"type": "adaptive"},
+            tools=tools,
+            messages=messages,
+        )
+        if response.stop_reason == "end_turn":
+            return "\n".join(
+                block.text for block in response.content if block.type == "text"
+            )
+        if response.stop_reason != "tool_use":
+            return f"Analysis ended unexpectedly (stop_reason={response.stop_reason})."
+        messages.append({"role": "assistant", "content": response.content})
+        tool_results = []
+        for block in response.content:
+            if block.type != "tool_use":
+                continue
+            raw_path = block.input.get("path", "")
+            target = (project_root / raw_path).resolve()
+            if not target.is_relative_to(project_root):
+                content = "Error: path traversal not allowed."
+            elif not target.exists():
+                content = f"File not found: {raw_path}"
+            else:
+                try:
+                    content = target.read_text(encoding="utf-8")
+                except Exception as exc:
+                    content = f"Error reading {raw_path}: {exc}"
+            tool_results.append(
+                {"type": "tool_result", "tool_use_id": block.id, "content": content}
+            )
+        messages.append({"role": "user", "content": tool_results})
 
 
 def _find_active_error_log(log_dir: Path, filename_stem: str) -> Path | None:
@@ -68,12 +149,17 @@ def read_error_log_for_date(log_path: Path, target_date: date) -> list[str]:
     return matching_lines
 
 
-def diagnose(log_path: Path | None = None, target_date: date | None = None) -> str:
+def diagnose(
+    log_path: Path | None = None,
+    target_date: date | None = None,
+    use_llm: bool = True,
+) -> str:
     """Run diagnostic check on error log.
 
     Args:
         log_path: Override path to error log (default: auto-detected from config)
         target_date: Date to check (default: today)
+        use_llm: Whether to call Claude for root-cause analysis (default: True)
 
     Returns:
         Diagnostic report as a string.
@@ -123,12 +209,20 @@ def diagnose(log_path: Path | None = None, target_date: date | None = None) -> s
     report_lines.append("")
     report_lines.append(f"Checked at: {dt.now().isoformat()}")
     report_lines.append("")
-    report_lines.append("Next steps:")
-    report_lines.append("  1. Review the errors above")
-    report_lines.append("  2. Identify the root cause from the error messages")
-    report_lines.append("  3. Check relevant code sections (financial_news/server.py)")
-    report_lines.append("  4. Propose a fix if the cause is identified")
-    report_lines.append("  5. Request human review before merging any changes")
+
+    if use_llm and os.environ.get("ANTHROPIC_API_KEY"):
+        report_lines.append("LLM root-cause analysis:")
+        report_lines.append("")
+        try:
+            analysis = _analyze_with_llm(error_lines[:20], _PROJECT_ROOT)
+            report_lines.append(analysis)
+        except Exception as exc:
+            logger.exception("LLM analysis failed")
+            report_lines.append(
+                f"LLM analysis failed ({exc}). Review errors above manually."
+            )
+    else:
+        report_lines.append("Set ANTHROPIC_API_KEY to enable LLM root-cause analysis.")
 
     report = "\n".join(report_lines)
     logger.warning("Errors detected: %s", report)

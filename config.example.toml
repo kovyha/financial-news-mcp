@@ -25,8 +25,30 @@ filename = "financial_news"
 #         passed to the model.
 level = "INFO"
 
+[analysis]
+
+# Cap applied to infinite z-scores (zero-baseline spikes) before exporting to
+# Grafana Cloud and before passing values to LLM prompts. Must be > 0.
+# Default: 99.0
+z_score_cap = 99.0
+
 [monitor]
 
 # Tickers to watch during the daily monitoring run.
 # Remove or add symbols as needed — each must be a valid Finnhub symbol.
 tickers = ["NVDA", "TSLA", "META", "AMD", "F", "BAC", "GME", "PLUG", "XOM", "UNH"]
+
+# Path where the monitor writes its stats snapshot after each run.
+# The briefing agent reads this file (if fresh) instead of re-fetching from Finnhub.
+# Default: /tmp/financial_news_snapshot.json
+# snapshot_path = "/tmp/financial_news_snapshot.json"
+
+[briefing]
+
+# How many days back to fetch headlines for elevated/unusual tickers.
+# Default: 7
+headline_days = 7
+
+# Maximum number of headlines to pass to Claude per ticker lookup.
+# Default: 50
+max_headlines = 50

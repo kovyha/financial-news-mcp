@@ -1,8 +1,11 @@
-name: Monitoring (Daily)
+name: Monitor & Briefing (Daily)
 
-# Runs daily after US market close to record news volume stats for the watchlist.
-# Pushes z-score, recent count, and EWM mean per ticker to Grafana Cloud via OTLP.
-# On failure, the diagnostic agent runs automatically to surface the root cause.
+# Runs daily after US market close.
+# Monitor step: fetches news volume stats and pushes OTel gauges to Grafana Cloud.
+# Briefing step: calls Claude to produce a plain-language summary (on by default).
+#
+# To skip the briefing on a specific run: trigger via workflow_dispatch and set
+# run_briefing to false.
 #
 # IMPORTANT: This workflow is disabled by default.
 # To enable: Go to Actions tab → select this workflow → "Enable workflow"
@@ -11,9 +14,14 @@ on:
     # 21:00 UTC = after US market close (Mon–Fri)
     - cron: '0 21 * * 1-5'
   workflow_dispatch:
+    inputs:
+      run_briefing:
+        description: 'Run the briefing agent after the monitor'
+        type: boolean
+        default: true
 
 jobs:
-  monitor:
+  daily:
     runs-on: ubuntu-latest
 
     steps:
@@ -38,8 +46,16 @@ jobs:
           GRAFANA_CLOUD_BASIC_AUTH_HEADER: ${{ secrets.GRAFANA_CLOUD_BASIC_AUTH_HEADER }}
         run: uv run python -m financial_news.monitor
 
+      - name: Run briefing agent
+        if: ${{ github.event.inputs.run_briefing != 'false' }}
+        env:
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: uv run python -m financial_news.briefing
+
       - name: Run diagnostic agent on failure
         if: failure()
         env:
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: uv run python -m financial_news.diagnostic

@@ -87,12 +87,15 @@ and produces structured review output for a human to assess and post.
 ticker watchlist, then pushes z-score, recent count, and EWM mean as OpenTelemetry gauges
 to Grafana Cloud via OTLP. On failure, triggers the Diagnostic agent automatically.
 
+The monitor is the first step of `.github/workflows/monitor.yaml`; the Briefing agent
+runs as the second step of the same job (sharing the runner and `/tmp`).
+
 **Triggers:**
 1. **Scheduled (automatic):** Daily at 21:00 UTC (Mon–Fri), via `.github/workflows/monitor.yaml`.
    Disabled by default until secrets (`FINNHUB_API_KEY`, `GRAFANA_CLOUD_OTLP_ENDPOINT`,
    `GRAFANA_CLOUD_BASIC_AUTH_HEADER`) are configured in GitHub Actions.
-2. **Manual:** `workflow_dispatch` on the `monitor.yaml` workflow, or
-   `uv run python -m financial_news.monitor` locally with the required env vars set.
+2. **Manual:** `workflow_dispatch` on the `monitor.yaml` workflow (set `run_briefing: false`
+   to skip the briefing step), or `uv run python -m financial_news.monitor` locally.
 
 **Scope:** Read-only against the Finnhub API and the local config. Writes metrics to
 Grafana Cloud only. Does not modify any file in the repository.
@@ -113,11 +116,11 @@ Grafana Cloud only. Does not modify any file in the repository.
 or errors surfaced in the error log — and proposes fixes where the cause is identified.
 
 **Triggers:**
-1. **Scheduled (automatic):** Runs daily. Reads the error log as configured in
-   `config.toml` (default: `logs/financial_news.error.log`). If any error lines are
-   present for the current day, begins investigation automatically.
-2. **Ad hoc (human):** Triggered manually for urgent or complex incidents where a
-   scheduled run would be too slow.
+1. **Scheduled (automatic):** Runs automatically when the monitor job fails, via
+   `.github/workflows/monitor.yaml`. Reads the error log as configured in `config.toml`
+   (default: `logs/financial_news.error.log`). If any error lines are present for the
+   current day, begins investigation automatically.
+2. **Ad hoc (human):** Triggered manually for urgent or complex incidents.
 
 **Scope:** Full read access across the repository, including source code, configuration,
 and log files in the configured log directory. May propose changes to any file, including

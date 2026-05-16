@@ -4,10 +4,10 @@ Thanks for contributing.
 
 ## Development workflow
 
-Install the project in editable mode:
+Install the project and all dependency groups (including `diagnostic`, which provides `anthropic` for the LLM-powered agent tests):
 
 ```bash
-uv pip install -e .
+uv sync --all-groups
 ```
 
 The repository includes a minimal GitHub Actions CI workflow at `.github/workflows/ci.yaml`.

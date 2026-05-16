@@ -16,7 +16,8 @@ For the canonical contributor workflow and validation commands, see `CONTRIBUTIN
 - `financial_news/` — package directory:
   - `server.py` — MCP server exposing tools (`get_news_volume`, `health_check`).
   - `config.py` — configuration loader for logging and analysis settings (baseline window, classification thresholds).
-  - `diagnostic.py` — diagnostic agent for error log analysis.
+  - `briefing.py` — daily briefing agent; computes watchlist z-scores then calls Claude to reason over elevated/unusual tickers.
+  - `diagnostic.py` — LLM-powered diagnostic agent; reads error logs then calls Claude to identify root cause and propose a fix.
   - `monitor.py` — daily monitoring agent; pushes z-score/count/EWM mean as OTel gauges to Grafana Cloud.
   - `__init__.py` — package initialization.
 - `tests/` — pytest test files and fixtures:
@@ -31,21 +32,20 @@ For the canonical contributor workflow and validation commands, see `CONTRIBUTIN
 - `docs/` — documentation for iterations and developer notes.
 - `.github/workflows/` — GitHub Actions CI/CD workflows:
   - `ci.yaml` — baseline CI (`ruff check` + `pytest` on push and pull request, protected-file checks).
-  - `diagnostic.yaml` — scheduled diagnostic runs (disabled by default, configurable via schedule or manual trigger).
-  - `monitor.yaml` — daily monitoring run at 21:00 UTC; invokes the diagnostic agent on failure (disabled by default until secrets are configured).
+  - `monitor.yaml` — daily run at 21:00 UTC; runs the monitor step (OTel gauges to Grafana Cloud), then the briefing step (Claude analysis of elevated/unusual tickers), and invokes the LLM diagnostic agent on failure. Disabled by default until secrets are configured.
 - `.github/CODEOWNERS` — code ownership and review requirements for governance files.
 - `config.example.toml` — example configuration file (copy to `config.toml` to customize).
 - `README.md` — public project overview and usage entry point.
 - `CONTRIBUTING.md` — canonical contributor workflow and validation steps.
 - `MAINTAINERS.md` — project maintainers and their responsibilities.
 - `CHANGELOG.md` — change history across iterations.
-- `pyproject.toml` — project metadata, dependencies, and `build-system` config for setuptools.
+- `pyproject.toml` — project metadata, dependencies, and `build-system` config for setuptools. The `diagnostic` dependency group (`anthropic`) is separate from the main runtime deps to keep the MCP server's install surface free of LLM packages.
 - `docs/engineering-standards.md` — code quality and review expectations for humans and agents.
 - `uv.lock` — locked dependency versions (managed by `uv`).
 
 ## Common commands (uv-focused)
-- Install editable package: `uv pip install -e .`
-- Add a dependency: `uv add "package_name"` or dev: `uv add --dev "pkg>=x.y"`
+- Install all groups (required for tests): `uv sync --all-groups`
+- Add a dependency: `uv add "package_name"` or dev: `uv add --dev "pkg>=x.y"` or diagnostic: edit `pyproject.toml` and run `uv sync --all-groups`
 - Run a quick Python check inside project env: `uv run python -c 'import numpy as np; print(np.__version__)'`
 - Run baseline CI checks locally: `uv run ruff check .` and `uv run pytest`
 
@@ -64,7 +64,8 @@ python -m pip install -r requirements.txt  # if you maintain one
 - **Boundary enforcement tests:** `test_boundary.py` verifies the deterministic/LLM boundary is maintained (no model inference in the signal layer).
 - **Configuration system tests:** `test_config.py` covers config loading, defaults, validation, and error handling.
 - **Logging system tests:** `test_logging.py` verifies the timestamp-based rolling file handler and compression behavior.
-- **Diagnostic agent tests:** `test_diagnostic.py` tests error log parsing and diagnostic reporting.
+- **Diagnostic agent tests:** `test_diagnostic.py` tests error log parsing, diagnostic reporting, and the LLM agentic loop (using mocked Anthropic client responses — no real API calls in CI).
+- **Briefing agent tests:** `test_briefing.py` tests stat collection, prompt formatting, headline fetching, and the LLM agentic loop (mocked — no real API calls in CI).
 - **Monitor agent tests:** `test_monitor.py` covers run() success/failure/partial, gauge value correctness, OTel provider wiring, and GAUGE_SPECS contract.
 - **Test fixtures:** `conftest.py` sets `FINNHUB_API_KEY` to a harmless default for test imports and ensures test runners can find the package.
 

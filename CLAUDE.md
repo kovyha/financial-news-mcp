@@ -21,8 +21,10 @@ Never move business logic (z-score math, classification thresholds, Finnhub fetc
 | [financial_news/server.py](financial_news/server.py) | MCP server, tool definitions, orchestration |
 | [financial_news/analysis.py](financial_news/analysis.py) | Z-score computation and EWM baseline logic |
 | [financial_news/config.py](financial_news/config.py) | Config loader — thresholds, baseline window, logging settings |
-| [financial_news/diagnostic.py](financial_news/diagnostic.py) | Diagnostic agent for error log analysis |
+| [financial_news/briefing.py](financial_news/briefing.py) | Daily briefing agent — computes watchlist z-scores and calls Claude (Opus 4.7) to reason over elevated/unusual tickers |
+| [financial_news/diagnostic.py](financial_news/diagnostic.py) | LLM-powered diagnostic agent — reads error logs, then calls Claude (Opus 4.7) to identify root cause and propose a fix |
 | [financial_news/monitor.py](financial_news/monitor.py) | Daily monitoring agent — fetches watchlist z-scores and exports OTel gauges to Grafana Cloud |
+| [financial_news/snapshot.py](financial_news/snapshot.py) | Passes monitor stats to the briefing step within the same workflow run (date-keyed, atomic write) |
 | [config.example.toml](config.example.toml) | Copy to `config.toml` to customize thresholds and logging |
 
 ## Governance docs — read these before making changes
@@ -66,6 +68,26 @@ All changes — including agent-authored ones — require explicit human approva
 FINNHUB_API_KEY=<key> uv run python -m financial_news.server
 ```
 
+## Running the daily briefing
+
+```bash
+FINNHUB_API_KEY=<key> \
+ANTHROPIC_API_KEY=<key> \
+uv run python -m financial_news.briefing
+```
+
+In CI the briefing runs as the second step of `.github/workflows/monitor.yaml` (after the monitor step), sharing the same runner. The briefing step is enabled by default and can be skipped via `workflow_dispatch` (`run_briefing: false`). Disabled by default until secrets are configured.
+
+## Running the diagnostic agent
+
+```bash
+FINNHUB_API_KEY=<key> \
+ANTHROPIC_API_KEY=<key> \
+uv run python -m financial_news.diagnostic
+```
+
+Without `ANTHROPIC_API_KEY` the agent still runs but skips LLM analysis and prints the raw error log entries instead.
+
 ## Running the monitor
 
 ```bash
@@ -75,6 +97,6 @@ GRAFANA_CLOUD_BASIC_AUTH_HEADER="Basic <token>" \
 uv run python -m financial_news.monitor
 ```
 
-The monitor runs automatically via `.github/workflows/monitor.yaml` daily at 21:00 UTC (after US market close). The workflow is disabled by default until secrets are configured.
+The monitor runs automatically as the first step of `.github/workflows/monitor.yaml` daily at 21:00 UTC (after US market close). The workflow is disabled by default until secrets are configured.
 
 Requires Python 3.12+ and `uv`.
