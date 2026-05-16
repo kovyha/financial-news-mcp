@@ -105,6 +105,10 @@ def test_get_news_volume_with_no_baseline_but_recent(monkeypatch):
 
 
 def test_server_import_fails_with_empty_api_key(monkeypatch):
+    for key in ("financial_news.analysis", "financial_news.server"):
+        if key in sys.modules:
+            monkeypatch.setitem(sys.modules, key, sys.modules[key])
+
     sys.modules.pop("financial_news.analysis", None)
     sys.modules.pop("financial_news.server", None)
     monkeypatch.setenv("FINNHUB_API_KEY", "")

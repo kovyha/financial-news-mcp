@@ -23,6 +23,28 @@ THRESHOLD_ELEVATED: float = _cfg.analysis.threshold_elevated
 THRESHOLD_UNUSUAL: float = _cfg.analysis.threshold_unusual
 BASELINE_DAYS: int = _cfg.analysis.baseline_days
 
+# Registry of numeric outputs from compute_volume_stats that should be exported
+# as OTel gauges. Each entry is (stats_key, otel_metric_name, description).
+# Add a row here whenever a new numeric field is added to the return dict —
+# monitor.py iterates this to register and set gauges automatically.
+GAUGE_SPECS: list[tuple[str, str, str]] = [
+    (
+        "z_score",
+        "financial_news.z_score",
+        "EWM z-score for 24h news volume vs 30-day baseline",
+    ),
+    (
+        "recent_count",
+        "financial_news.recent_count",
+        "News articles published in the last 24h",
+    ),
+    (
+        "mean",
+        "financial_news.ewm_mean",
+        "30-day EWM baseline mean article count",
+    ),
+]
+
 
 def _validate_thresholds() -> None:
     """Guard: ensure thresholds are in valid order."""

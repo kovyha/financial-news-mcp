@@ -1,6 +1,13 @@
 import pytest
 
-from financial_news.config import AnalysisConfig, Config, LoggingConfig, load_config
+from financial_news.config import (
+    _DEFAULT_MONITOR_TICKERS,  # noqa: PLC2701
+    AnalysisConfig,
+    Config,
+    LoggingConfig,
+    MonitorConfig,
+    load_config,
+)
 
 
 def test_defaults_when_no_file(tmp_path):
@@ -124,6 +131,95 @@ def test_analysis_threshold_ordering_raises(tmp_path):
     config_file = tmp_path / "config.toml"
     config_file.write_text(
         "[analysis]\nthreshold_elevated = 3.0\nthreshold_unusual = 2.0\n"
+    )
+    with pytest.raises(ValueError, match="threshold_elevated.*must be less than"):
+        load_config(path=config_file)
+
+
+# ---------------------------------------------------------------------------
+# [monitor] section
+# ---------------------------------------------------------------------------
+
+
+def test_monitor_defaults_when_no_file(tmp_path):
+    cfg = load_config(path=tmp_path / "config.toml")
+    assert cfg.monitor.tickers == _DEFAULT_MONITOR_TICKERS
+
+
+def test_monitor_tickers_loaded_from_file(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[monitor]\ntickers = ["AAPL", "GOOG"]\n')
+    cfg = load_config(path=config_file)
+    assert cfg.monitor.tickers == ["AAPL", "GOOG"]
+
+
+def test_monitor_empty_tickers_raises(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[monitor]\ntickers = []\n")
+    with pytest.raises(ValueError, match="tickers must not be empty"):
+        load_config(path=config_file)
+
+
+def test_monitor_unrecognised_key_raises(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[monitor]\nunknown_key = "value"\n')
+    with pytest.raises(ValueError, match="unrecognised keys"):
+        load_config(path=config_file)
+
+
+def test_monitor_defaults_preserved_when_only_other_sections_present(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[logging]\nlevel = "DEBUG"\n')
+    cfg = load_config(path=config_file)
+    assert cfg.monitor.tickers == _DEFAULT_MONITOR_TICKERS
+    assert isinstance(cfg.monitor, MonitorConfig)
+
+
+# ---------------------------------------------------------------------------
+# Cross-section and edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_all_three_sections_together(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        '[logging]\nlevel = "DEBUG"\n'
+        "[analysis]\nbaseline_days = 60\n"
+        '[monitor]\ntickers = ["AAPL"]\n'
+    )
+    cfg = load_config(path=config_file)
+    assert cfg.logging.level == "DEBUG"
+    assert cfg.analysis.baseline_days == 60
+    assert cfg.monitor.tickers == ["AAPL"]
+
+
+def test_unknown_top_level_section_is_silently_ignored(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[unknown_section]\nfoo = 1\n")
+    cfg = load_config(path=config_file)
+    assert cfg == Config()
+
+
+def test_invalid_toml_raises(tmp_path):
+    import tomllib
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("not valid toml ][")
+    with pytest.raises(tomllib.TOMLDecodeError):
+        load_config(path=config_file)
+
+
+def test_analysis_baseline_days_negative_raises(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[analysis]\nbaseline_days = -1\n")
+    with pytest.raises(ValueError, match="baseline_days must be > 0"):
+        load_config(path=config_file)
+
+
+def test_analysis_equal_thresholds_raises(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        "[analysis]\nthreshold_elevated = 2.0\nthreshold_unusual = 2.0\n"
     )
     with pytest.raises(ValueError, match="threshold_elevated.*must be less than"):
         load_config(path=config_file)

@@ -27,10 +27,30 @@ class AnalysisConfig:
     threshold_unusual: float = 3.0
 
 
+_DEFAULT_MONITOR_TICKERS: list[str] = [
+    "NVDA",
+    "TSLA",
+    "META",
+    "AMD",
+    "F",
+    "BAC",
+    "GME",
+    "PLUG",
+    "XOM",
+    "UNH",
+]
+
+
+@dataclass
+class MonitorConfig:
+    tickers: list[str] = field(default_factory=lambda: list(_DEFAULT_MONITOR_TICKERS))
+
+
 @dataclass
 class Config:
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
+    monitor: MonitorConfig = field(default_factory=MonitorConfig)
 
 
 def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
@@ -88,6 +108,18 @@ def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
             f"must be less than threshold_unusual ({threshold_unusual})"
         )
 
+    monitor_data = data.get("monitor", {})
+
+    unknown = monitor_data.keys() - MonitorConfig.__dataclass_fields__.keys()
+    if unknown:
+        raise ValueError(
+            f"config.toml [monitor] contains unrecognised keys: {sorted(unknown)}"
+        )
+
+    tickers = list(monitor_data.get("tickers", _DEFAULT_MONITOR_TICKERS))
+    if not tickers:
+        raise ValueError("config.toml [monitor] tickers must not be empty")
+
     return Config(
         logging=LoggingConfig(
             log_dir=log_data.get("log_dir", LoggingConfig.log_dir),
@@ -100,4 +132,5 @@ def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
             threshold_elevated=threshold_elevated,
             threshold_unusual=threshold_unusual,
         ),
+        monitor=MonitorConfig(tickers=tickers),
     )

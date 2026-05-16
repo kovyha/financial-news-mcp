@@ -1,0 +1,45 @@
+name: Monitoring (Daily)
+
+# Runs daily after US market close to record news volume stats for the watchlist.
+# Pushes z-score, recent count, and EWM mean per ticker to Grafana Cloud via OTLP.
+# On failure, the diagnostic agent runs automatically to surface the root cause.
+#
+# IMPORTANT: This workflow is disabled by default.
+# To enable: Go to Actions tab → select this workflow → "Enable workflow"
+on:
+  schedule:
+    # 21:00 UTC = after US market close (Mon–Fri)
+    - cron: '0 21 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Run monitoring agent
+        env:
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          GRAFANA_CLOUD_OTLP_ENDPOINT: ${{ secrets.GRAFANA_CLOUD_OTLP_ENDPOINT }}
+          GRAFANA_CLOUD_BASIC_AUTH_HEADER: ${{ secrets.GRAFANA_CLOUD_BASIC_AUTH_HEADER }}
+        run: uv run python -m financial_news.monitor
+
+      - name: Run diagnostic agent on failure
+        if: failure()
+        env:
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+        run: uv run python -m financial_news.diagnostic

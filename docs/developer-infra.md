@@ -17,6 +17,7 @@ For the canonical contributor workflow and validation commands, see `CONTRIBUTIN
   - `server.py` — MCP server exposing tools (`get_news_volume`, `health_check`).
   - `config.py` — configuration loader for logging and analysis settings (baseline window, classification thresholds).
   - `diagnostic.py` — diagnostic agent for error log analysis.
+  - `monitor.py` — daily monitoring agent; pushes z-score/count/EWM mean as OTel gauges to Grafana Cloud.
   - `__init__.py` — package initialization.
 - `tests/` — pytest test files and fixtures:
   - `test_calculate_z_score.py` — unit tests for z-score calculation.
@@ -25,11 +26,13 @@ For the canonical contributor workflow and validation commands, see `CONTRIBUTIN
   - `test_config.py` — tests for the configuration system.
   - `test_logging.py` — tests for logging and rollover behavior.
   - `test_diagnostic.py` — tests for the diagnostic agent.
+  - `test_monitor.py` — tests for the monitoring agent (run(), gauge values, OTel wiring).
   - `conftest.py` — pytest configuration and fixtures.
 - `docs/` — documentation for iterations and developer notes.
 - `.github/workflows/` — GitHub Actions CI/CD workflows:
   - `ci.yaml` — baseline CI (`ruff check` + `pytest` on push and pull request, protected-file checks).
   - `diagnostic.yaml` — scheduled diagnostic runs (disabled by default, configurable via schedule or manual trigger).
+  - `monitor.yaml` — daily monitoring run at 21:00 UTC; invokes the diagnostic agent on failure (disabled by default until secrets are configured).
 - `.github/CODEOWNERS` — code ownership and review requirements for governance files.
 - `config.example.toml` — example configuration file (copy to `config.toml` to customize).
 - `README.md` — public project overview and usage entry point.
@@ -62,6 +65,7 @@ python -m pip install -r requirements.txt  # if you maintain one
 - **Configuration system tests:** `test_config.py` covers config loading, defaults, validation, and error handling.
 - **Logging system tests:** `test_logging.py` verifies the timestamp-based rolling file handler and compression behavior.
 - **Diagnostic agent tests:** `test_diagnostic.py` tests error log parsing and diagnostic reporting.
+- **Monitor agent tests:** `test_monitor.py` covers run() success/failure/partial, gauge value correctness, OTel provider wiring, and GAUGE_SPECS contract.
 - **Test fixtures:** `conftest.py` sets `FINNHUB_API_KEY` to a harmless default for test imports and ensures test runners can find the package.
 
 ## Packaging rationale

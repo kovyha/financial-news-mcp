@@ -81,6 +81,32 @@ and produces structured review output for a human to assess and post.
 
 ---
 
+### Monitor
+
+**Purpose:** Runs daily after US market close. Fetches news volume stats for a configured
+ticker watchlist, then pushes z-score, recent count, and EWM mean as OpenTelemetry gauges
+to Grafana Cloud via OTLP. On failure, triggers the Diagnostic agent automatically.
+
+**Triggers:**
+1. **Scheduled (automatic):** Daily at 21:00 UTC (Mon–Fri), via `.github/workflows/monitor.yaml`.
+   Disabled by default until secrets (`FINNHUB_API_KEY`, `GRAFANA_CLOUD_OTLP_ENDPOINT`,
+   `GRAFANA_CLOUD_BASIC_AUTH_HEADER`) are configured in GitHub Actions.
+2. **Manual:** `workflow_dispatch` on the `monitor.yaml` workflow, or
+   `uv run python -m financial_news.monitor` locally with the required env vars set.
+
+**Scope:** Read-only against the Finnhub API and the local config. Writes metrics to
+Grafana Cloud only. Does not modify any file in the repository.
+
+**Constraints:**
+- Deterministic only within `run()`. Calls `compute_volume_stats()` from `analysis.py`
+  and records the result via OTel gauges — no LLM inference occurs.
+- Inf z-scores (zero-baseline spikes) are capped at 99.0 so OTel gauges stay finite.
+- Ticker watchlist is driven by `[monitor]` in `config.toml` (default: 10-ticker list
+  in `MonitorConfig`). Must not be hardcoded inside `monitor.py`.
+- All proposed changes require explicit human approval before merge.
+
+---
+
 ### Diagnostic
 
 **Purpose:** Investigates anomalous behaviour — unexpected LLM output, bad Finnhub data,

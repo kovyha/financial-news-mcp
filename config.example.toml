@@ -24,3 +24,9 @@ filename = "financial_news"
 # DEBUG — additionally logs raw fetch requests, article counts, and headlines
 #         passed to the model.
 level = "INFO"
+
+[monitor]
+
+# Tickers to watch during the daily monitoring run.
+# Remove or add symbols as needed — each must be a valid Finnhub symbol.
+tickers = ["NVDA", "TSLA", "META", "AMD", "F", "BAC", "GME", "PLUG", "XOM", "UNH"]

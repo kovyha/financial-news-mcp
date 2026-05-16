@@ -11,8 +11,8 @@ Audience: Agents / automation + Developers
 
 ## Scope boundaries
 
-- Primary application code lives in `financial_news/server.py` and
-  `financial_news/config.py`.
+- Primary application code lives in `financial_news/server.py`,
+  `financial_news/config.py`, and `financial_news/monitor.py`.
 - Agents may update docs, tests, and focused implementation details within the scope
   defined for their role in `docs/AGENTS.md`.
 - Agents must not operate on other repositories. Work is scoped to this repository only
@@ -41,9 +41,9 @@ code, tests, documentation, and configuration.
 
 ## Deterministic/LLM boundary
 
-The boundary between the deterministic signal layer (`get_news_volume` and its helpers)
-and the LLM reasoning layer (Claude, via MCP) is a deliberate architectural property of
-this system. Agents must not:
+The boundary between the deterministic signal layer (`get_news_volume`, `monitor.py`, and
+their helpers) and the LLM reasoning layer (Claude, via MCP) is a deliberate architectural
+property of this system. Agents must not:
 
 - Move business logic (z-score computation, classification thresholds, Finnhub fetch
   behaviour) into prompts, LLM calls, or agent reasoning steps.
@@ -96,14 +96,16 @@ sequence:
 
 ## Code review checklist: Deterministic/LLM boundary
 
-When reviewing changes to `financial_news/server.py`, verify:
+When reviewing changes to `financial_news/server.py` or `financial_news/monitor.py`, verify:
 
-- [ ] Does `get_news_volume()` or its helpers call any LLM API? (Must be NO)
+- [ ] Does `get_news_volume()`, `run()`, or their helpers call any LLM API? (Must be NO)
 - [ ] Are classification thresholds only modified via `AnalysisConfig` in `config.py` or `config.toml`?
       (Not inlined in code, not in prompts)
 - [ ] Are all data transformations in the deterministic layer testable and reproducible?
 - [ ] If thresholds changed: Is there a clear justification in the commit message or PR?
 - [ ] Does the docstring in `get_news_volume()` still accurately describe the boundary?
+- [ ] Is `GAUGE_SPECS` in `analysis.py` the single source of truth for metric registration?
+      (Gauge keys must not be hardcoded in `monitor.py`)
 
 ## Adding new agents
 

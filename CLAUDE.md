@@ -22,6 +22,7 @@ Never move business logic (z-score math, classification thresholds, Finnhub fetc
 | [financial_news/analysis.py](financial_news/analysis.py) | Z-score computation and EWM baseline logic |
 | [financial_news/config.py](financial_news/config.py) | Config loader — thresholds, baseline window, logging settings |
 | [financial_news/diagnostic.py](financial_news/diagnostic.py) | Diagnostic agent for error log analysis |
+| [financial_news/monitor.py](financial_news/monitor.py) | Daily monitoring agent — fetches watchlist z-scores and exports OTel gauges to Grafana Cloud |
 | [config.example.toml](config.example.toml) | Copy to `config.toml` to customize thresholds and logging |
 
 ## Governance docs — read these before making changes
@@ -44,6 +45,10 @@ uv run pytest --cov=financial_news --cov-report=term-missing -q
 
 Coverage threshold is enforced by `pyproject.toml`. Do not drop it.
 
+## Pre-push checklist — complete before every `git push`
+
+- [ ] Update any affected docs (`CLAUDE.md`, `docs/*.md`, `CONTRIBUTING.md`) to reflect the change
+
 ## Protected files — require explicit human instruction to modify
 
 - `.github/workflows/ci.yaml`
@@ -60,5 +65,16 @@ All changes — including agent-authored ones — require explicit human approva
 ```bash
 FINNHUB_API_KEY=<key> uv run python -m financial_news.server
 ```
+
+## Running the monitor
+
+```bash
+FINNHUB_API_KEY=<key> \
+GRAFANA_CLOUD_OTLP_ENDPOINT=<url> \
+GRAFANA_CLOUD_BASIC_AUTH_HEADER="Basic <token>" \
+uv run python -m financial_news.monitor
+```
+
+The monitor runs automatically via `.github/workflows/monitor.yaml` daily at 21:00 UTC (after US market close). The workflow is disabled by default until secrets are configured.
 
 Requires Python 3.12+ and `uv`.
