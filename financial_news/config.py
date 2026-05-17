@@ -5,6 +5,7 @@ Falls back to built-in defaults when the file does not exist.
 FINNHUB_API_KEY is intentionally excluded — secrets stay in the environment.
 """
 
+import os
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -73,6 +74,30 @@ class Config:
     email: EmailConfig | None = None
 
 
+def _email_config_from_env() -> EmailConfig | None:
+    """Build EmailConfig from environment variables, or return None if not configured.
+
+    EMAIL_RECIPIENTS (comma-separated) and SMTP_HOST are required.
+    SMTP_PORT defaults to 587; SMTP_FROM defaults to SMTP_USER.
+    """
+    recipients_raw = os.environ.get("EMAIL_RECIPIENTS", "").strip()
+    smtp_host = os.environ.get("SMTP_HOST", "").strip()
+    if not recipients_raw or not smtp_host:
+        return None
+    recipients = [r.strip() for r in recipients_raw.split(",") if r.strip()]
+    if not recipients:
+        return None
+    smtp_port_raw = os.environ.get("SMTP_PORT", "").strip()
+    smtp_port = int(smtp_port_raw) if smtp_port_raw else EmailConfig.smtp_port
+    smtp_from = os.environ.get("SMTP_FROM", os.environ.get("SMTP_USER", "")).strip()
+    return EmailConfig(
+        recipients=recipients,
+        smtp_host=smtp_host,
+        smtp_port=smtp_port,
+        smtp_from=smtp_from,
+    )
+
+
 def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
     """Load configuration from *path*.
 
@@ -81,7 +106,7 @@ def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
     misconfiguration is visible immediately on startup.
     """
     if not path.exists():
-        return Config()
+        return Config(email=_email_config_from_env())
 
     with open(path, "rb") as f:
         data = tomllib.load(f)
@@ -172,7 +197,9 @@ def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
         )
 
     email_data = data.get("email")
-    email_cfg: EmailConfig | None = None
+    email_cfg: EmailConfig | None = (
+        _email_config_from_env() if email_data is None else None
+    )
     if email_data is not None:
         unknown = email_data.keys() - _EMAIL_KNOWN_KEYS
         if unknown:
