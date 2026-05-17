@@ -4,6 +4,7 @@ from financial_news.config import (
     _DEFAULT_MONITOR_TICKERS,  # noqa: PLC2701
     AnalysisConfig,
     Config,
+    EmailConfig,
     LoggingConfig,
     MonitorConfig,
     load_config,
@@ -276,5 +277,77 @@ def test_briefing_max_headlines_zero_raises(tmp_path):
 def test_briefing_unrecognised_key_raises(tmp_path):
     config_file = tmp_path / "config.toml"
     config_file.write_text("[briefing]\nunknown_key = 5\n")
+    with pytest.raises(ValueError, match="unrecognised keys"):
+        load_config(path=config_file)
+
+
+# --- [email] section ---
+
+
+def _email_toml(extra: str = "") -> str:
+    return (
+        '[email]\nrecipients = ["a@example.com"]\nsmtp_host = "smtp.example.com"\n'
+    ) + extra
+
+
+def test_email_section_absent_gives_none(tmp_path):
+    cfg = load_config(path=tmp_path / "config.toml")
+    assert cfg.email is None
+
+
+def test_email_section_parses_required_fields(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(_email_toml())
+    cfg = load_config(path=config_file)
+    assert isinstance(cfg.email, EmailConfig)
+    assert cfg.email.recipients == ["a@example.com"]
+    assert cfg.email.smtp_host == "smtp.example.com"
+
+
+def test_email_default_port_is_587(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(_email_toml())
+    cfg = load_config(path=config_file)
+    assert cfg.email.smtp_port == 587
+
+
+def test_email_custom_port_parsed(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(_email_toml("smtp_port = 465\n"))
+    cfg = load_config(path=config_file)
+    assert cfg.email.smtp_port == 465
+
+
+def test_email_smtp_from_parsed(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(_email_toml('smtp_from = "noreply@example.com"\n'))
+    cfg = load_config(path=config_file)
+    assert cfg.email.smtp_from == "noreply@example.com"
+
+
+def test_email_empty_recipients_raises(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[email]\nrecipients = []\nsmtp_host = "smtp.example.com"\n')
+    with pytest.raises(ValueError, match="recipients must not be empty"):
+        load_config(path=config_file)
+
+
+def test_email_missing_smtp_host_raises(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[email]\nrecipients = ["a@example.com"]\n')
+    with pytest.raises(ValueError, match="smtp_host is required"):
+        load_config(path=config_file)
+
+
+def test_email_invalid_port_raises(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(_email_toml("smtp_port = 99999\n"))
+    with pytest.raises(ValueError, match="smtp_port must be"):
+        load_config(path=config_file)
+
+
+def test_email_unrecognised_key_raises(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(_email_toml("unknown_key = true\n"))
     with pytest.raises(ValueError, match="unrecognised keys"):
         load_config(path=config_file)

@@ -25,6 +25,7 @@ from financial_news import (
 )
 from financial_news.analysis import compute_volume_stats, fetch_news
 from financial_news.config import load_config
+from financial_news.email_report import send_run_summary
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +95,9 @@ def _fetch_headlines_for_tool(
     return "\n".join(lines)
 
 
-def _run_briefing(stats: list[dict], headline_days: int, max_headlines: int) -> str:
+def _run_briefing(
+    stats: list[dict], baseline_days: int, headline_days: int, max_headlines: int
+) -> str:
     """Call Claude to produce a daily market briefing over the collected stats."""
     client = anthropic.Anthropic()
     tools = [
@@ -120,11 +123,11 @@ def _run_briefing(stats: list[dict], headline_days: int, max_headlines: int) -> 
     prompt = (
         f"Today is {date.today().isoformat()}. You are producing a daily news-volume "
         "briefing for a financial watchlist.\n\n"
-        "Watchlist statistics (z-score vs 30-day EWM baseline, today's headlines"
-        f" included):\n\n{stats_block}\n\n"
+        f"Watchlist statistics (z-score vs {baseline_days}-day EWM baseline,"
+        f" today's headlines included):\n\n{stats_block}\n\n"
         "For any ticker classified as 'elevated' or 'unusual', use"
-        " get_news_headlines to fetch broader 7-day headline context and identify"
-        " the likely driver. Then write a concise briefing covering:\n"
+        f" get_news_headlines to fetch broader {headline_days}-day headline context"
+        " and identify the likely driver. Then write a concise briefing covering:\n"
         "1. Notable tickers with elevated or unusual activity and the likely driver\n"
         "2. Any cross-watchlist themes or patterns\n"
         "3. A brief note on quiet tickers\n\n"
@@ -162,16 +165,25 @@ def main() -> int:
     stats = snapshot.read(Path(cfg.monitor.snapshot_path))
     if stats is None:
         stats = _collect_stats(cfg.monitor.tickers, cfg.analysis.z_score_cap)
-    briefing = _run_briefing(
-        stats, cfg.briefing.headline_days, cfg.briefing.max_headlines
+    briefing_text = _run_briefing(
+        stats,
+        cfg.analysis.baseline_days,
+        cfg.briefing.headline_days,
+        cfg.briefing.max_headlines,
     )
     print()
     print("=" * 60)
     print(f"DAILY BRIEFING — {date.today().isoformat()}")
     print("=" * 60)
-    print(briefing)
+    print(briefing_text)
     print("=" * 60)
     print()
+
+    if cfg.email is not None:
+        good_stats = [s for s in stats if "error" not in s]
+        failed_tickers = [s["ticker"] for s in stats if "error" in s]
+        send_run_summary(cfg.email, good_stats, failed_tickers, briefing_text)
+
     return 0
 
 

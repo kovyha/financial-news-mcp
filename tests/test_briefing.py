@@ -1,11 +1,11 @@
 """Tests for the daily briefing agent."""
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import anthropic
 
 from financial_news import briefing
-from financial_news.config import AnalysisConfig, BriefingConfig
+from financial_news.config import AnalysisConfig, BriefingConfig, EmailConfig
 
 # ── Mock helpers ──────────────────────────────────────────────────────────────
 
@@ -46,6 +46,7 @@ def _sample_stats(ticker: str = "NVDA", classification: str = "unusual") -> dict
 
 
 _CAP = AnalysisConfig.z_score_cap
+_BASELINE = AnalysisConfig.baseline_days
 _DAYS = BriefingConfig.headline_days
 _MAX = BriefingConfig.max_headlines
 
@@ -154,8 +155,27 @@ def test_run_briefing_end_turn(monkeypatch):
     mock_client.messages.create.return_value = resp
     monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
 
-    result = briefing._run_briefing([_sample_stats("NVDA", "normal")], _DAYS, _MAX)
+    result = briefing._run_briefing(
+        [_sample_stats("NVDA", "normal")], _BASELINE, _DAYS, _MAX
+    )
     assert "Watchlist is quiet today." in result
+
+
+def test_run_briefing_prompt_uses_configured_baseline_days(monkeypatch):
+    """baseline_days must appear in the prompt, not the literal '30'."""
+    resp = _response("end_turn", [_text_block("ok")])
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = resp
+    monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
+
+    briefing._run_briefing(
+        [_sample_stats()], baseline_days=60, headline_days=14, max_headlines=_MAX
+    )
+
+    call_kwargs = mock_client.messages.create.call_args[1]
+    prompt_text = call_kwargs["messages"][0]["content"]
+    assert "60-day" in prompt_text
+    assert "14-day" in prompt_text
 
 
 def test_run_briefing_unexpected_stop_reason(monkeypatch):
@@ -164,7 +184,7 @@ def test_run_briefing_unexpected_stop_reason(monkeypatch):
     mock_client.messages.create.return_value = resp
     monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
 
-    result = briefing._run_briefing([_sample_stats()], _DAYS, _MAX)
+    result = briefing._run_briefing([_sample_stats()], _BASELINE, _DAYS, _MAX)
     assert "max_tokens" in result
 
 
@@ -193,7 +213,9 @@ def test_run_briefing_tool_use_loop(monkeypatch):
     mock_client.messages.create.side_effect = [tool_resp, end_resp]
     monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
 
-    result = briefing._run_briefing([_sample_stats("NVDA", "unusual")], _DAYS, _MAX)
+    result = briefing._run_briefing(
+        [_sample_stats("NVDA", "unusual")], _BASELINE, _DAYS, _MAX
+    )
     assert "NVDA" in result
 
     # Verify headline content was passed back as a tool result
@@ -213,7 +235,7 @@ def test_main(monkeypatch, capsys):
     )
     monkeypatch.setattr(
         "financial_news.briefing._run_briefing",
-        lambda stats, headline_days, max_headlines: "All quiet.",
+        lambda stats, baseline_days, headline_days, max_headlines: "All quiet.",
     )
     exit_code = briefing.main()
     assert exit_code == 0
@@ -232,7 +254,7 @@ def test_main_uses_snapshot_when_available(monkeypatch, capsys):
     )
     monkeypatch.setattr(
         "financial_news.briefing._run_briefing",
-        lambda stats, headline_days, max_headlines: "From snapshot.",
+        lambda stats, baseline_days, headline_days, max_headlines: "From snapshot.",
     )
     briefing.main()
     assert not collect_called, (
@@ -252,8 +274,91 @@ def test_main_falls_back_to_collect_when_no_snapshot(monkeypatch, capsys):
     )
     monkeypatch.setattr(
         "financial_news.briefing._run_briefing",
-        lambda stats, headline_days, max_headlines: "From collect.",
+        lambda stats, baseline_days, headline_days, max_headlines: "From collect.",
     )
     briefing.main()
     assert collect_called, "_collect_stats must be called when no snapshot is available"
     assert "From collect." in capsys.readouterr().out
+
+
+# ── email integration ─────────────────────────────────────────────────────────
+
+
+def _email_cfg() -> EmailConfig:
+    return EmailConfig(recipients=["ops@example.com"], smtp_host="smtp.example.com")
+
+
+def _patch_main(monkeypatch, stats, briefing_text="Analysis."):
+    monkeypatch.setattr("financial_news.snapshot.read", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        "financial_news.briefing._collect_stats", lambda *a, **kw: stats
+    )
+    monkeypatch.setattr(
+        "financial_news.briefing._run_briefing",
+        lambda *a, **kw: briefing_text,
+    )
+
+
+def test_main_calls_send_run_summary_when_email_configured(monkeypatch, capsys):
+    stats = [_sample_stats("NVDA", "unusual")]
+    _patch_main(monkeypatch, stats)
+
+    fake_cfg = MagicMock()
+    fake_cfg.email = _email_cfg()
+    fake_cfg.monitor.tickers = ["NVDA"]
+    fake_cfg.monitor.snapshot_path = "/tmp/snap.json"
+
+    with (
+        patch("financial_news.briefing.load_config", return_value=fake_cfg),
+        patch("financial_news.briefing.send_run_summary") as mock_email,
+    ):
+        briefing.main()
+
+    mock_email.assert_called_once()
+    cfg_arg, good_stats_arg, failed_arg, briefing_arg = mock_email.call_args[0]
+    assert cfg_arg is fake_cfg.email
+    assert len(good_stats_arg) == 1
+    assert good_stats_arg[0]["ticker"] == "NVDA"
+    assert failed_arg == []
+    assert briefing_arg == "Analysis."
+
+
+def test_main_does_not_call_send_run_summary_when_email_is_none(monkeypatch, capsys):
+    stats = [_sample_stats("NVDA", "normal")]
+    _patch_main(monkeypatch, stats)
+
+    fake_cfg = MagicMock()
+    fake_cfg.email = None
+    fake_cfg.monitor.tickers = ["NVDA"]
+    fake_cfg.monitor.snapshot_path = "/tmp/snap.json"
+
+    with (
+        patch("financial_news.briefing.load_config", return_value=fake_cfg),
+        patch("financial_news.briefing.send_run_summary") as mock_email,
+    ):
+        briefing.main()
+
+    mock_email.assert_not_called()
+
+
+def test_main_separates_good_and_failed_stats_for_email(monkeypatch, capsys):
+    stats = [
+        _sample_stats("NVDA", "unusual"),
+        {"ticker": "FAIL", "error": "fetch failed"},
+    ]
+    _patch_main(monkeypatch, stats)
+
+    fake_cfg = MagicMock()
+    fake_cfg.email = _email_cfg()
+    fake_cfg.monitor.tickers = ["NVDA", "FAIL"]
+    fake_cfg.monitor.snapshot_path = "/tmp/snap.json"
+
+    with (
+        patch("financial_news.briefing.load_config", return_value=fake_cfg),
+        patch("financial_news.briefing.send_run_summary") as mock_email,
+    ):
+        briefing.main()
+
+    _, good_stats_arg, failed_arg, _ = mock_email.call_args[0]
+    assert good_stats_arg == [_sample_stats("NVDA", "unusual")]
+    assert failed_arg == ["FAIL"]

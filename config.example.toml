@@ -52,3 +52,14 @@ headline_days = 7
 # Maximum number of headlines to pass to Claude per ticker lookup.
 # Default: 50
 max_headlines = 50
+
+# [email]
+# Send a summary email after each monitor run. Remove the comment markers to
+# enable. Credentials come from environment variables (not stored here):
+#   SMTP_USER     — login username, usually the sender address
+#   SMTP_PASSWORD — login password or app password
+#
+# recipients = ["you@example.com", "teammate@example.com"]
+# smtp_host   = "smtp.gmail.com"
+# smtp_port   = 587          # default; TLS STARTTLS
+# smtp_from   = ""           # optional override; defaults to SMTP_USER

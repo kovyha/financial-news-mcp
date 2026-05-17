@@ -9,6 +9,8 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+_EMAIL_KNOWN_KEYS = {"recipients", "smtp_host", "smtp_port", "smtp_from"}
+
 _DEFAULT_CONFIG_PATH = Path("config.toml")
 
 
@@ -55,11 +57,20 @@ class BriefingConfig:
 
 
 @dataclass
+class EmailConfig:
+    recipients: list[str]
+    smtp_host: str
+    smtp_port: int = 587
+    smtp_from: str = ""
+
+
+@dataclass
 class Config:
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
     monitor: MonitorConfig = field(default_factory=MonitorConfig)
     briefing: BriefingConfig = field(default_factory=BriefingConfig)
+    email: EmailConfig | None = None
 
 
 def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
@@ -160,6 +171,33 @@ def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
             f"config.toml [briefing] max_headlines must be > 0, got: {max_headlines}"
         )
 
+    email_data = data.get("email")
+    email_cfg: EmailConfig | None = None
+    if email_data is not None:
+        unknown = email_data.keys() - _EMAIL_KNOWN_KEYS
+        if unknown:
+            raise ValueError(
+                f"config.toml [email] contains unrecognised keys: {sorted(unknown)}"
+            )
+        recipients = list(email_data.get("recipients", []))
+        if not recipients:
+            raise ValueError("config.toml [email] recipients must not be empty")
+        smtp_host = str(email_data.get("smtp_host", "")).strip()
+        if not smtp_host:
+            raise ValueError("config.toml [email] smtp_host is required")
+        smtp_port = int(email_data.get("smtp_port", EmailConfig.smtp_port))
+        if not (1 <= smtp_port <= 65535):
+            raise ValueError(
+                f"config.toml [email] smtp_port must be 1–65535, got: {smtp_port}"
+            )
+        smtp_from = str(email_data.get("smtp_from", ""))
+        email_cfg = EmailConfig(
+            recipients=recipients,
+            smtp_host=smtp_host,
+            smtp_port=smtp_port,
+            smtp_from=smtp_from,
+        )
+
     return Config(
         logging=LoggingConfig(
             log_dir=log_data.get("log_dir", LoggingConfig.log_dir),
@@ -178,4 +216,5 @@ def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
             headline_days=headline_days,
             max_headlines=max_headlines,
         ),
+        email=email_cfg,
     )
