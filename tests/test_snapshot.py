@@ -87,8 +87,8 @@ def test_read_uses_todays_date_not_file_mtime(tmp_path):
     """Date check is semantic (payload field), not filesystem-based."""
     path = tmp_path / "snap.json"
     yesterday = date.today() - timedelta(days=1)
-    with patch("financial_news.snapshot.date") as mock_date:
-        mock_date.today.return_value = yesterday
+    with patch("financial_news.snapshot.datetime") as mock_dt:
+        mock_dt.now.return_value.date.return_value = yesterday
         snapshot.write([{"ticker": "NVDA"}], path)
     # File was written as yesterday's snapshot — today's read should reject it
     assert snapshot.read(path) is None

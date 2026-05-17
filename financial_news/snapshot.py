@@ -10,7 +10,7 @@ The date check guards against stale files left over from a previous local run.
 import json
 import logging
 import os
-from datetime import date
+from datetime import datetime, timezone
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 def write(stats: list[dict], path: Path) -> None:
     """Atomically write stats to a dated snapshot file."""
-    payload = {"date": date.today().isoformat(), "stats": stats}
+    payload = {"date": datetime.now(timezone.utc).date().isoformat(), "stats": stats}
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(payload))
@@ -36,7 +36,7 @@ def read(path: Path) -> list[dict] | None:
     except json.JSONDecodeError as exc:
         logger.warning("snapshot corrupt, ignoring path=%s: %s", path, exc)
         return None
-    if payload.get("date") != date.today().isoformat():
+    if payload.get("date") != datetime.now(timezone.utc).date().isoformat():
         logger.info("snapshot date mismatch path=%s", path)
         return None
     stats = payload.get("stats")

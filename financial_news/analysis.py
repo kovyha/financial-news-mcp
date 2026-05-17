@@ -2,7 +2,7 @@ import logging
 import os
 import time
 from collections import Counter
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import finnhub
 import pandas as pd
@@ -145,7 +145,7 @@ def compute_volume_stats(symbol: str) -> dict:
     Returns a dict with keys: recent_count, mean, std, z_score, classification,
     headlines, baseline_counts.
     """
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
     yesterday = today - timedelta(days=1)
     baseline_start = today - timedelta(days=BASELINE_DAYS)
 
@@ -153,7 +153,7 @@ def compute_volume_stats(symbol: str) -> dict:
     baseline_articles = fetch_news(symbol, from_date=baseline_start, to_date=yesterday)
 
     article_date_counts = Counter(
-        datetime.fromtimestamp(article["datetime"]).date()
+        datetime.fromtimestamp(article["datetime"], tz=timezone.utc).date()
         for article in baseline_articles
     )
 

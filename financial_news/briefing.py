@@ -12,7 +12,7 @@ Run via GitHub Actions (monitor.yaml, briefing step) or manually:
 
 import logging
 import sys
-from datetime import date, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import anthropic
@@ -79,7 +79,7 @@ def _fetch_headlines_for_tool(
     ticker: str, headline_days: int, max_headlines: int
 ) -> str:
     """Fetch recent headline context for use as a tool result."""
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
     from_date = today - timedelta(days=headline_days)
     try:
         news = fetch_news(ticker, from_date=from_date, to_date=today)
@@ -87,11 +87,14 @@ def _fetch_headlines_for_tool(
         return f"Error fetching news for {ticker}: {exc}"
     if not news:
         return f"No news found for {ticker} in the last {headline_days} days."
-    lines = [
-        f"- [{date.fromtimestamp(item['datetime']).isoformat()}]"
-        f" {item.get('headline', 'no headline')} ({item.get('source', 'unknown')})"
-        for item in news[:max_headlines]
-    ]
+    lines = []
+    for item in news[:max_headlines]:
+        dt = (
+            datetime.fromtimestamp(item["datetime"], tz=timezone.utc).date().isoformat()
+        )
+        h = item.get("headline", "no headline")
+        src = item.get("source", "unknown")
+        lines.append(f"- [{dt}] {h} ({src})")
     return "\n".join(lines)
 
 
@@ -121,7 +124,8 @@ def _run_briefing(
     ]
     stats_block = _format_stats_for_prompt(stats)
     prompt = (
-        f"Today is {date.today().isoformat()}. You are producing a daily news-volume "
+        f"Today is {datetime.now(timezone.utc).date().isoformat()} (UTC)."
+        " You are producing a daily news-volume "
         "briefing for a financial watchlist.\n\n"
         f"Watchlist statistics (z-score vs {baseline_days}-day EWM baseline,"
         f" today's headlines included):\n\n{stats_block}\n\n"
@@ -173,7 +177,7 @@ def main() -> int:
     )
     print()
     print("=" * 60)
-    print(f"DAILY BRIEFING — {date.today().isoformat()}")
+    print(f"DAILY BRIEFING — {datetime.now(timezone.utc).date().isoformat()}")
     print("=" * 60)
     print(briefing_text)
     print("=" * 60)

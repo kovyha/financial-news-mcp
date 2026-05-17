@@ -18,7 +18,7 @@ Email structure (primary → secondary):
 import logging
 import os
 import smtplib
-from datetime import date
+from datetime import datetime, timezone
 from email.message import EmailMessage
 
 from financial_news.config import EmailConfig
@@ -37,7 +37,7 @@ def _count_by_classification(ticker_stats: list[dict]) -> dict[str, int]:
 
 
 def _build_subject(ticker_stats: list[dict], failed_tickers: list[str]) -> str:
-    today = date.today().isoformat()
+    today = datetime.now(timezone.utc).date().isoformat()
     c = _count_by_classification(ticker_stats)
     summary = (
         f"Unusual: {c['unusual']}, Elevated: {c['elevated']}, Normal: {c['normal']}"
