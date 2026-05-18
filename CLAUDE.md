@@ -97,6 +97,6 @@ GRAFANA_CLOUD_BASIC_AUTH_HEADER="Basic <token>" \
 uv run python -m financial_news.monitor
 ```
 
-The monitor runs automatically as the first step of `.github/workflows/monitor.yaml` daily at 21:00 UTC (after US market close). The workflow is disabled by default until secrets are configured.
+The monitor runs automatically as the first step of `.github/workflows/monitor.yaml` daily at 12:00 UTC (8am ET, pre-US market open, every day including weekends). The workflow is disabled by default until secrets are configured.
 
 Requires Python 3.12+ and `uv`.

@@ -11,8 +11,8 @@ name: Monitor & Briefing (Daily)
 # To enable: Go to Actions tab → select this workflow → "Enable workflow"
 on:
   schedule:
-    # 21:00 UTC = after US market close (Mon–Fri)
-    - cron: '0 21 * * 1-5'
+    # 12:00 UTC daily (8am ET) — pre-US market open, financial news breaks on weekends too
+    - cron: '0 12 * * *'
   workflow_dispatch:
     inputs:
       run_briefing:
