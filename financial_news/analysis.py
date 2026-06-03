@@ -2,10 +2,13 @@ import logging
 import os
 import time
 from collections import Counter
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
+from functools import lru_cache
+from zoneinfo import ZoneInfo
 
 import finnhub
 import pandas as pd
+import pandas_market_calendars as mcal
 
 from financial_news.config import load_config
 
@@ -70,6 +73,57 @@ if not api_key:
 client = finnhub.Client(api_key=api_key)
 
 _validate_thresholds()
+
+# ---------------------------------------------------------------------------
+# Exchange timezone lookup (via pandas_market_calendars)
+# ---------------------------------------------------------------------------
+# pmcal owns all timezone data.  This code only owns:
+#   1. A dynamically-built alias map from pmcal's own .aliases attributes.
+#   2. A small country-code fallback (unavoidable: pmcal has no country_code).
+
+
+def _build_pmcal_alias_map() -> dict[str, str]:
+    """Return {uppercase_alias: pmcal_calendar_name} built from pmcal aliases.
+
+    Filters to purely-alphabetic aliases of length >= 3 and skips generic
+    routing/index names that would produce misleading matches.
+    """
+    _skip = frozenset({"BATS", "DJIA", "DOW", "FX", "FOREX", "stock"})
+    result: dict[str, str] = {}
+    for name in mcal.get_calendar_names():
+        try:
+            cal = mcal.get_calendar(name)
+            for alias in getattr(cal, "aliases", []):
+                key = alias.upper()
+                if key in _skip or not alias.isalpha() or len(alias) < 3:
+                    continue
+                if key not in result:
+                    result[key] = name
+        except Exception:
+            pass
+    return result
+
+
+# Built once at import; pmcal is the authoritative source for timezone data.
+_PMCAL_ALIASES: dict[str, str] = _build_pmcal_alias_map()
+
+
+@lru_cache(maxsize=128)
+def _exchange_tz(symbol: str) -> ZoneInfo:
+    """Return the exchange timezone for *symbol* via Finnhub profile + pmcal."""
+    try:
+        profile = client.company_profile2(symbol=symbol)
+        exchange = (profile.get("exchange") or "").upper()
+        for alias, cal_name in _PMCAL_ALIASES.items():
+            if alias in exchange:
+                return mcal.get_calendar(cal_name).tz
+    except Exception:
+        logger.warning(
+            "exchange timezone lookup failed for %s, defaulting to NYSE", symbol
+        )
+        return mcal.get_calendar("NYSE").tz
+    logger.warning("no exchange timezone match for %s, defaulting to NYSE", symbol)
+    return mcal.get_calendar("NYSE").tz
 
 
 def _ewma_mean_std(values: list[float], span: int) -> tuple[float, float]:
@@ -145,15 +199,25 @@ def compute_volume_stats(symbol: str) -> dict:
     Returns a dict with keys: recent_count, mean, std, z_score, classification,
     headlines, baseline_counts.
     """
-    today = datetime.now(timezone.utc).date()
+    tz = _exchange_tz(symbol)
+    today = datetime.now(tz).date()
     yesterday = today - timedelta(days=1)
     baseline_start = today - timedelta(days=BASELINE_DAYS)
 
-    recent = fetch_news(symbol, from_date=today, to_date=today)
+    # Fetch with to_date+1 so Finnhub includes all of today regardless of how
+    # it interprets the upper bound of a same-day range.
+    recent_raw = fetch_news(symbol, from_date=today, to_date=today + timedelta(days=1))
     baseline_articles = fetch_news(symbol, from_date=baseline_start, to_date=yesterday)
 
+    # Keep only articles that fall on today in the exchange's local timezone.
+    recent = [
+        a
+        for a in recent_raw
+        if datetime.fromtimestamp(a["datetime"], tz=tz).date() == today
+    ]
+
     article_date_counts = Counter(
-        datetime.fromtimestamp(article["datetime"], tz=timezone.utc).date()
+        datetime.fromtimestamp(article["datetime"], tz=tz).date()
         for article in baseline_articles
     )
 
@@ -177,9 +241,10 @@ def compute_volume_stats(symbol: str) -> dict:
         classification = "unusual"
 
     logger.info(
-        "compute_volume_stats symbol=%s recent_count=%d ewm_mean=%.2f ewm_std=%.2f "
-        "z_score=%.2f classification=%s",
+        "compute_volume_stats symbol=%s tz=%s recent_count=%d ewm_mean=%.2f "
+        "ewm_std=%.2f z_score=%.2f classification=%s",
         symbol,
+        tz.key,
         recent_count,
         mean,
         std,

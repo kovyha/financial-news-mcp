@@ -2,6 +2,7 @@ import importlib
 import os
 import sys
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -59,11 +60,15 @@ def test_fetch_news_wraps_upstream_errors(monkeypatch):
 def test_get_news_volume_classification(monkeypatch, z_value, expected):
     # Provide simple baseline and recent articles; patch calculate_z_score to
     # return the desired z_value and assert classification string appears.
+    et = ZoneInfo("America/New_York")
+    monkeypatch.setattr(analysis, "_exchange_tz", lambda symbol: et)
+    today = datetime.now(et).date()
+
     baseline = make_baseline_from_counts([1, 1, 1, 1, 1, 1, 1])
     recent = make_articles(2, day_offset=0)
 
     def fake_fetch(symbol, from_date, to_date):
-        return recent if from_date == to_date else baseline
+        return recent if from_date == today else baseline
 
     monkeypatch.setattr(analysis, "fetch_news", fake_fetch)
     monkeypatch.setattr(analysis, "calculate_z_score", lambda *_: z_value)
@@ -73,6 +78,8 @@ def test_get_news_volume_classification(monkeypatch, z_value, expected):
 
 
 def test_get_news_volume_with_no_data(monkeypatch):
+    et = ZoneInfo("America/New_York")
+    monkeypatch.setattr(analysis, "_exchange_tz", lambda symbol: et)
     monkeypatch.setattr(analysis, "fetch_news", lambda *_, **__: [])
 
     out = server.get_news_volume("FAKE")
@@ -89,10 +96,14 @@ def test_get_news_volume_with_no_data(monkeypatch):
 
 
 def test_get_news_volume_with_no_baseline_but_recent(monkeypatch):
+    et = ZoneInfo("America/New_York")
+    monkeypatch.setattr(analysis, "_exchange_tz", lambda symbol: et)
+    today = datetime.now(et).date()
+
     recent = make_articles(3)
 
     def fake_fetch(symbol, from_date, to_date):
-        return recent if from_date == to_date else []
+        return recent if from_date == today else []
 
     monkeypatch.setattr(analysis, "fetch_news", fake_fetch)
 
@@ -102,6 +113,31 @@ def test_get_news_volume_with_no_baseline_but_recent(monkeypatch):
     assert "Mean (30-day EWM): 0.0" in out
     assert "Z-score: inf" in out
     assert "Unusual news volume detected" in out
+
+
+def test_tomorrow_articles_excluded_from_recent(monkeypatch):
+    et = ZoneInfo("America/New_York")
+    monkeypatch.setattr(analysis, "_exchange_tz", lambda symbol: et)
+    today = datetime.now(et).date()
+    tomorrow = today + timedelta(days=1)
+
+    def noon(d):
+        return int(datetime(d.year, d.month, d.day, 12, 0, tzinfo=et).timestamp())
+
+    today_ts = noon(today)
+    tomorrow_ts = noon(tomorrow)
+    raw = [
+        {"datetime": today_ts, "headline": "today article"},
+        {"datetime": tomorrow_ts, "headline": "tomorrow article"},
+    ]
+
+    def fake_fetch(symbol, from_date, to_date):
+        return raw if from_date == today else []
+
+    monkeypatch.setattr(analysis, "fetch_news", fake_fetch)
+
+    out = server.get_news_volume("FAKE")
+    assert "News articles (last 24hrs): 1" in out
 
 
 def test_server_import_fails_with_empty_api_key(monkeypatch):
