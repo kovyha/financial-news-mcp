@@ -49,7 +49,7 @@ Coverage threshold is enforced by `pyproject.toml`. Do not drop it.
 
 ## Pre-push checklist — complete before every `git push`
 
-- [ ] Update any affected docs (`CLAUDE.md`, `docs/*.md`, `CONTRIBUTING.md`) to reflect the change
+- [ ] Update any affected docs (`README.md`, `CLAUDE.md`, `docs/*.md`, `CONTRIBUTING.md`) to reflect the change
 
 ## Protected files — require explicit human instruction to modify
 
