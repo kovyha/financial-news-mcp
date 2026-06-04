@@ -351,3 +351,76 @@ def test_email_unrecognised_key_raises(tmp_path):
     config_file.write_text(_email_toml("unknown_key = true\n"))
     with pytest.raises(ValueError, match="unrecognised keys"):
         load_config(path=config_file)
+
+
+# [sentiment] section
+
+
+def test_sentiment_defaults_when_no_file(tmp_path):
+    cfg = load_config(path=tmp_path / "config.toml")
+    assert cfg.sentiment.model_name == "ProsusAI/finbert"
+
+
+def test_sentiment_model_name_loaded_from_file(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[sentiment]\nmodel_name = "ProsusAI/finbert"\n')
+    cfg = load_config(path=config_file)
+    assert cfg.sentiment.model_name == "ProsusAI/finbert"
+
+
+def test_sentiment_empty_model_name_raises(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[sentiment]\nmodel_name = ""\n')
+    with pytest.raises(ValueError, match="model_name must not be empty"):
+        load_config(path=config_file)
+
+
+def test_sentiment_unrecognised_key_raises(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[sentiment]\nunknown_key = true\n")
+    with pytest.raises(ValueError, match="unrecognised keys"):
+        load_config(path=config_file)
+
+
+def test_sentiment_default_labels(tmp_path):
+    cfg = load_config(path=tmp_path / "config.toml")
+    assert cfg.sentiment.labels == ["positive", "negative", "neutral"]
+
+
+def test_sentiment_custom_labels_loaded_from_file(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[sentiment]\nlabels = ["bullish", "bearish", "neutral"]\n')
+    cfg = load_config(path=config_file)
+    assert cfg.sentiment.labels == ["bullish", "bearish", "neutral"]
+
+
+def test_sentiment_empty_labels_raises(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[sentiment]\nlabels = []\n")
+    with pytest.raises(ValueError, match="labels must not be empty"):
+        load_config(path=config_file)
+
+
+def test_sentiment_blank_label_raises(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[sentiment]\nlabels = ["positive", "", "neutral"]\n')
+    with pytest.raises(ValueError, match="labels must not contain blank"):
+        load_config(path=config_file)
+
+
+def test_sentiment_model_name_from_env(tmp_path, monkeypatch):
+    """SENTIMENT_MODEL_NAME env var overrides the default when no config.toml."""
+    monkeypatch.setenv("SENTIMENT_MODEL_NAME", "ProsusAI/finbert")
+    cfg = load_config(path=tmp_path / "config.toml")
+    assert cfg.sentiment.model_name == "ProsusAI/finbert"
+
+
+def test_sentiment_model_env_ignored_when_config_file_present(tmp_path, monkeypatch):
+    """SENTIMENT_MODEL_NAME env var is ignored when config.toml is present."""
+    monkeypatch.setenv("SENTIMENT_MODEL_NAME", "ProsusAI/finbert")
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        '[sentiment]\nmodel_name = "ahmedrachid/FinancialBERT-Sentiment-Analysis"\n'
+    )
+    cfg = load_config(path=config_file)
+    assert cfg.sentiment.model_name == "ahmedrachid/FinancialBERT-Sentiment-Analysis"

@@ -1,10 +1,10 @@
 # financial-news-mcp
 
-An MCP server that gives Claude the ability to detect statistically unusual news activity on any stock, with quantitative signal detection and contextual reasoning.
+An MCP server that detects statistically unusual news activity on any stock ticker, with a multi-agent pipeline that scores sentiment, reasons over signals, and delivers a daily market briefing.
 
 ## Why This Exists
 
-Financial news moves markets, but not all news activity is equal. This project detects when news volume on a stock is statistically unusual, giving traders and analysts an early signal that something significant may be happening before it is widely reflected in price.
+Financial news moves markets, but not all news activity is equal. This project detects when news volume on a stock is statistically unusual — giving traders and analysts an early signal that something significant may be happening before it is widely reflected in price.
 
 Built on Model Context Protocol (MCP), it connects Claude directly to live financial news data and turns a natural-language question into a quantitative signal with contextual reasoning.
 
@@ -12,82 +12,122 @@ Built on Model Context Protocol (MCP), it connects Claude directly to live finan
 
 Ask Claude: "Any unusual news activity on HSBC today?"
 
-Claude can respond with something like: "Yes, HSBC is showing significant unusual news volume today. Z-score: 3.1. Article count is 3.4x the recent average. Likely driver: [reasoning based on the headlines and coverage]."
+Claude responds with something like: "Yes, HSBC is showing significant unusual news volume today. Z-score: 3.1. Article count is 3.4x the recent average. Likely driver: [reasoning based on the headlines and sentiment signals]."
 
-In practice, the output includes volume statistics, z-score significance, and a short explanation of what may be driving the spike.
+Every morning before the US market opens, the daily briefing agent scans the watchlist, scores every headline with finBERT sentiment analysis, and uses Claude to write a concise briefing covering notable tickers, likely drivers, and cross-watchlist themes.
 
 ## Architecture
-
-This project is built as a Python MCP server with a small, focused signal-detection pipeline.
-
-- `financial_news/server.py` exposes the MCP tool and orchestrates the workflow.
-- Finnhub provides live company news data.
-- pandas is used to compute the 30-day exponentially weighted mean (EWM) and standard deviation; z-score classification uses pure Python.
-- The z-score methodology compares today's article count against a 30-day EWM baseline and classifies the result as normal, elevated, or unusual.
-- Classification thresholds and the baseline window are configurable via `config.toml`.
-- Claude sits on top of that signal layer and can explain what the spike may mean in context.
 
 ### Deterministic and LLM layers
 
 The architecture maintains an explicit boundary between two layers:
 
-**Deterministic signal layer** (`get_news_volume`): fetches data from Finnhub, computes article counts, a 30-day exponentially weighted mean and standard deviation using pandas, and classifies the result against configurable thresholds (default: z < 2 = normal, z < 3 = elevated, z ≥ 3 = unusual). No model inference occurs here. The output is a structured, reproducible string.
+**Deterministic signal layer** (`get_news_volume` MCP tool): fetches data from Finnhub, computes article counts, a 30-day exponentially weighted mean and standard deviation using pandas, and classifies the result against configurable thresholds (default: z < 2 = normal, z < 3 = elevated, z ≥ 3 = unusual). No model inference occurs here. Output is a structured, reproducible dict.
 
-**LLM reasoning layer** (Claude, via MCP): receives that structured output as tool context and interprets what a statistically significant spike may mean — drawing on the headlines, market context, and its broader knowledge.
+**LLM reasoning layer** (Claude, via MCP): receives that structured output as tool context and interprets what a statistically significant spike may mean — drawing on the headlines, sentiment scores, and its broader knowledge.
 
-#### Auditability
+This boundary is intentional. In any regulated or auditable environment you can demonstrate precisely what data was fetched, what was computed deterministically, and exactly where model judgement begins.
 
-This boundary is intentional. In any regulated or auditable environment, it means you can demonstrate precisely:
-- What data was fetched from Finnhub (dates, symbol, API parameters)
-- What was computed deterministically (article counts, mean, std dev, z-score)
-- Exactly where model judgement begins (the LLM reasoning layer receives structured input)
+### Agents
 
-The deterministic layer is **fully reproducible and testable** (see `tests/test_calculate_z_score.py` and `tests/test_get_news_volume.py` for coverage at 98-99%).
+| Agent | File | Trigger | What it does |
+|---|---|---|---|
+| MCP server | `server.py` | On-demand (MCP client) | Exposes `get_news_volume` and `health_check` tools |
+| Daily briefing | `briefing.py` | Daily pre-market (CI) | Scores all watchlist headlines with finBERT, filters to high-confidence signals (≥ 0.85), calls Claude to produce a plain-language briefing; emails result |
+| Daily monitor | `monitor.py` | Daily pre-market (CI) | Fetches watchlist z-scores, exports OTel gauges to Grafana Cloud |
+| Diagnostic | `diagnostic.py` | On-demand | Reads error logs, calls Claude to identify root cause and propose a fix |
 
-**Important caveat:** Auditability assumes Finnhub API is trustworthy and accessible. The system includes a `health_check` tool to verify upstream API health. Comprehensive monitoring of upstream behavior is a future enhancement.
+### Sentiment pipeline
 
-## Setup and usage
+All watchlist headlines are scored locally by [finBERT](https://huggingface.co/ProsusAI/finbert) (no API cost). Headlines are then filtered by confidence threshold before being passed to Claude:
+
+- Headlines with finBERT confidence ≥ `confidence_threshold` (default: 0.85) are included
+- If fewer than `prompt_headlines_min` (default: 5) clear the bar, the top-scoring headlines fill the gap
+- No more than `prompt_headlines_max` (default: 50) headlines are passed per ticker
+- All thresholds are configurable in `config.toml`
+
+### CI pipeline
+
+The GitHub Actions `monitor.yaml` workflow runs daily at 12:00 UTC (8am ET, pre-market):
+
+1. **Monitor step** — fetches z-scores, exports to Grafana Cloud, writes a snapshot
+2. **Briefing step** — reads the snapshot, runs finBERT sentiment, calls Claude, sends email
+
+## Setup
 
 ### Prerequisites
 
 - Python 3.12+
 - `uv`
-- A `FINNHUB_API_KEY` environment variable
+- `FINNHUB_API_KEY` environment variable
 
 ### Install
 
 ```bash
-uv pip install -e .
+uv sync
+```
+
+For finBERT sentiment scoring (required by the briefing agent):
+
+```bash
+uv sync --group sentiment
 ```
 
 ### Run the MCP server
 
 ```bash
-uv run python -m financial_news.server
+FINNHUB_API_KEY=<key> uv run python -m financial_news.server
 ```
 
-### Example MCP usage
+### Run the daily briefing
 
-Once connected to Claude/Desktop or another MCP client, ask questions such as:
+```bash
+FINNHUB_API_KEY=<key> \
+ANTHROPIC_API_KEY=<key> \
+uv run python -m financial_news.briefing
+```
+
+### Run the monitor
+
+```bash
+FINNHUB_API_KEY=<key> \
+GRAFANA_CLOUD_OTLP_ENDPOINT=<url> \
+GRAFANA_CLOUD_BASIC_AUTH_HEADER="Basic <token>" \
+uv run python -m financial_news.monitor
+```
+
+### Configuration
+
+Copy `config.example.toml` to `config.toml` to customise thresholds, watchlist tickers, sentiment model, and email settings. `config.toml` is gitignored — do not commit it.
+
+### Example MCP queries
+
+Once connected to Claude Desktop or another MCP client:
 
 - "Any unusual news activity on HSBC today?"
 - "Check whether Tesla has elevated news flow right now."
 - "Why is there unusual news volume on Apple today?"
 
-CI runs baseline lint and test checks on pushes and pull requests. For local validation steps, see [CONTRIBUTING.md](CONTRIBUTING.md).
+## Validation
+
+```bash
+uv run ruff check .
+uv run ruff format .
+uv run pytest --cov=financial_news --cov-report=term-missing -q
+```
+
+Coverage threshold is enforced at 95%. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full pre-push checklist.
 
 ## Future enhancements
 
-- Add sentiment analysis to help traders judge whether a news spike is likely to turn into a real price move, and if the bias is more likely up or down.
 - Link the news signal to a kdb-based trading and order-flow view so traders can see news activity alongside positioning, execution, and immediate market reaction.
-- Add real-time signal and algo attribution to measure whether news-volume and sentiment signals are actually improving trading outcomes, with LLM reasoning to explain changes in performance.
+- Add real-time signal and algo attribution to measure whether news-volume and sentiment signals are actually improving trading outcomes.
 
-## Changelog / iterations
+## Docs
 
+- Agent catalog and behavioral rules: [docs/AGENTS.md](docs/AGENTS.md), [docs/SKILL.md](docs/SKILL.md)
+- Engineering standards: [docs/engineering-standards.md](docs/engineering-standards.md)
+- Developer infra (packaging, install, test strategy): [docs/developer-infra.md](docs/developer-infra.md)
 - Z-score iteration notes: [docs/z_score_iteration.md](docs/z_score_iteration.md)
 - Changelog: [CHANGELOG.md](CHANGELOG.md)
-
-## Contributing
-
-- Contributor guide: [CONTRIBUTING.md](CONTRIBUTING.md)
-
+- Contributing: [CONTRIBUTING.md](CONTRIBUTING.md)

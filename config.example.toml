@@ -53,6 +53,33 @@ headline_days = 7
 # Default: 50
 max_headlines = 50
 
+# Minimum finBERT confidence score (0–1) for a headline to be included in the
+# LLM prompt. Headlines below this threshold are excluded unless fewer than
+# prompt_headlines_min would remain, in which case the top-scoring headlines
+# fill the gap up to the minimum. Default: 0.85
+# confidence_threshold = 0.85
+
+# Minimum and maximum number of headlines passed to the LLM prompt per ticker.
+# The min ensures the LLM always has some context even when scores are low;
+# the max prevents token bloat on high-volume tickers.
+# Defaults: min=5, max=50
+# prompt_headlines_min = 5
+# prompt_headlines_max = 50
+
+[sentiment]
+
+# HuggingFace model used for finBERT headline sentiment scoring.
+# Requires the `sentiment` dependency group: uv sync --group sentiment
+# Alternatives: "ahmedrachid/FinancialBERT-Sentiment-Analysis"
+# Default: "ProsusAI/finbert"
+# model_name = "ProsusAI/finbert"
+
+# Expected classification labels produced by the model (lowercased).
+# Must match the model's output class names exactly; unexpected labels are
+# replaced with "unavailable" and logged as a warning.
+# Default matches ProsusAI/finbert.
+# labels = ["positive", "negative", "neutral"]
+
 # [email]
 # Send a summary email after each monitor run. Remove the comment markers to
 # enable. Credentials come from environment variables (not stored here):

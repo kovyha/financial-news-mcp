@@ -51,10 +51,22 @@ class MonitorConfig:
     snapshot_path: str = "/tmp/financial_news_snapshot.json"
 
 
+_DEFAULT_SENTIMENT_LABELS: list[str] = ["positive", "negative", "neutral"]
+
+
+@dataclass
+class SentimentConfig:
+    model_name: str = "ProsusAI/finbert"
+    labels: list[str] = field(default_factory=lambda: list(_DEFAULT_SENTIMENT_LABELS))
+
+
 @dataclass
 class BriefingConfig:
     headline_days: int = 7
     max_headlines: int = 50
+    confidence_threshold: float = 0.85
+    prompt_headlines_min: int = 5
+    prompt_headlines_max: int = 50
 
 
 @dataclass
@@ -71,6 +83,7 @@ class Config:
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
     monitor: MonitorConfig = field(default_factory=MonitorConfig)
     briefing: BriefingConfig = field(default_factory=BriefingConfig)
+    sentiment: SentimentConfig = field(default_factory=SentimentConfig)
     email: EmailConfig | None = None
 
 
@@ -106,7 +119,13 @@ def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
     misconfiguration is visible immediately on startup.
     """
     if not path.exists():
-        return Config(email=_email_config_from_env())
+        sentiment_model_env = os.environ.get("SENTIMENT_MODEL_NAME", "").strip()
+        sentiment = (
+            SentimentConfig(model_name=sentiment_model_env)
+            if sentiment_model_env
+            else SentimentConfig()
+        )
+        return Config(email=_email_config_from_env(), sentiment=sentiment)
 
     with open(path, "rb") as f:
         data = tomllib.load(f)
@@ -187,6 +206,16 @@ def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
         briefing_data.get("max_headlines", BriefingConfig.max_headlines)
     )
 
+    confidence_threshold = float(
+        briefing_data.get("confidence_threshold", BriefingConfig.confidence_threshold)
+    )
+    prompt_headlines_min = int(
+        briefing_data.get("prompt_headlines_min", BriefingConfig.prompt_headlines_min)
+    )
+    prompt_headlines_max = int(
+        briefing_data.get("prompt_headlines_max", BriefingConfig.prompt_headlines_max)
+    )
+
     if headline_days <= 0:
         raise ValueError(
             f"config.toml [briefing] headline_days must be > 0, got: {headline_days}"
@@ -195,6 +224,42 @@ def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
         raise ValueError(
             f"config.toml [briefing] max_headlines must be > 0, got: {max_headlines}"
         )
+    if not (0.0 < confidence_threshold <= 1.0):
+        raise ValueError(
+            "config.toml [briefing] confidence_threshold must be in (0, 1],"
+            f" got: {confidence_threshold}"
+        )
+    if prompt_headlines_min <= 0:
+        raise ValueError(
+            "config.toml [briefing] prompt_headlines_min must be > 0,"
+            f" got: {prompt_headlines_min}"
+        )
+    if prompt_headlines_max < prompt_headlines_min:
+        raise ValueError(
+            f"config.toml [briefing] prompt_headlines_max ({prompt_headlines_max})"
+            f" must be >= prompt_headlines_min ({prompt_headlines_min})"
+        )
+
+    sentiment_data = data.get("sentiment", {})
+
+    unknown = sentiment_data.keys() - SentimentConfig.__dataclass_fields__.keys()
+    if unknown:
+        raise ValueError(
+            f"config.toml [sentiment] contains unrecognised keys: {sorted(unknown)}"
+        )
+
+    sentiment_model_name = str(
+        sentiment_data.get("model_name", SentimentConfig.model_name)
+    )
+    if not sentiment_model_name:
+        raise ValueError("config.toml [sentiment] model_name must not be empty")
+
+    sentiment_labels = list(sentiment_data.get("labels", _DEFAULT_SENTIMENT_LABELS))
+    if not sentiment_labels:
+        raise ValueError("config.toml [sentiment] labels must not be empty")
+    blank = [lbl for lbl in sentiment_labels if not str(lbl).strip()]
+    if blank:
+        raise ValueError("config.toml [sentiment] labels must not contain blank values")
 
     email_data = data.get("email")
     email_cfg: EmailConfig | None = (
@@ -242,6 +307,12 @@ def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
         briefing=BriefingConfig(
             headline_days=headline_days,
             max_headlines=max_headlines,
+            confidence_threshold=confidence_threshold,
+            prompt_headlines_min=prompt_headlines_min,
+            prompt_headlines_max=prompt_headlines_max,
+        ),
+        sentiment=SentimentConfig(
+            model_name=sentiment_model_name, labels=sentiment_labels
         ),
         email=email_cfg,
     )

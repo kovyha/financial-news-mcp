@@ -9,14 +9,15 @@ For the canonical contributor workflow and validation commands, see `CONTRIBUTIN
 
 ## High-level overview
 - Project packaged as `financial_news` (a Python package directory). This lets you `import financial_news.server` and makes the code installable.
-- Build/install tooling: we use `uv` as the project manager. For editable installs use `uv pip install -e .` which wraps `pip install -e .` into `uv`'s managed environment.
+- Build/install tooling: we use `uv` as the project manager. Run `uv sync` to install the project and its dependencies. For finBERT sentiment scoring use `uv sync --group sentiment`.
 - Tests use `pytest`. Test helper/setup is in `tests/conftest.py`.
 
 ## Key files
 - `financial_news/` — package directory:
   - `server.py` — MCP server exposing tools (`get_news_volume`, `health_check`).
   - `config.py` — configuration loader for logging and analysis settings (baseline window, classification thresholds).
-  - `briefing.py` — daily briefing agent; computes watchlist z-scores then calls Claude to reason over elevated/unusual tickers.
+  - `briefing.py` — daily briefing agent; scores all watchlist headlines with finBERT sentiment, filters to high-confidence signals, then calls Claude to produce a plain-language briefing.
+  - `sentiment.py` — finBERT sentiment scoring; deterministic preprocessing for the briefing agent. Requires the `sentiment` dep group (`uv sync --group sentiment`).
   - `diagnostic.py` — LLM-powered diagnostic agent; reads error logs then calls Claude to identify root cause and propose a fix.
   - `monitor.py` — daily monitoring agent; pushes z-score/count/EWM mean as OTel gauges to Grafana Cloud.
   - `__init__.py` — package initialization.
@@ -32,7 +33,7 @@ For the canonical contributor workflow and validation commands, see `CONTRIBUTIN
 - `docs/` — documentation for iterations and developer notes.
 - `.github/workflows/` — GitHub Actions CI/CD workflows:
   - `ci.yaml` — baseline CI (`ruff check` + `pytest` on push and pull request, protected-file checks).
-  - `monitor.yaml` — daily run at 21:00 UTC; runs the monitor step (OTel gauges to Grafana Cloud), then the briefing step (Claude analysis of elevated/unusual tickers), and invokes the LLM diagnostic agent on failure. Disabled by default until secrets are configured.
+  - `monitor.yaml` — daily run at 12:00 UTC (8am ET, pre-market); runs the monitor step (OTel gauges to Grafana Cloud), then the briefing step (finBERT sentiment + Claude analysis + email), and invokes the LLM diagnostic agent on failure. Disabled by default until secrets are configured.
 - `.github/CODEOWNERS` — code ownership and review requirements for governance files.
 - `config.example.toml` — example configuration file (copy to `config.toml` to customize).
 - `README.md` — public project overview and usage entry point.
@@ -42,6 +43,18 @@ For the canonical contributor workflow and validation commands, see `CONTRIBUTIN
 - `pyproject.toml` — project metadata, dependencies, and `build-system` config for setuptools. The `diagnostic` dependency group (`anthropic`) is separate from the main runtime deps to keep the MCP server's install surface free of LLM packages.
 - `docs/engineering-standards.md` — code quality and review expectations for humans and agents.
 - `uv.lock` — locked dependency versions (managed by `uv`).
+
+## Environment variable overrides (no config.toml required)
+
+These env vars are read by `load_config` when no `config.toml` is present — useful in CI where the file is gitignored.
+
+| Env var | Overrides | Example |
+|---|---|---|
+| `SENTIMENT_MODEL_NAME` | `[sentiment] model_name` | `ProsusAI/finbert` |
+| `EMAIL_RECIPIENTS` | `[email] recipients` | `you@example.com,other@example.com` |
+| `SMTP_HOST` | `[email] smtp_host` | `smtp.gmail.com` |
+| `SMTP_PORT` | `[email] smtp_port` | `587` |
+| `SMTP_FROM` | `[email] smtp_from` | `sender@example.com` |
 
 ## Common commands (uv-focused)
 - Install all groups (required for tests): `uv sync --all-groups`
@@ -65,7 +78,9 @@ python -m pip install -r requirements.txt  # if you maintain one
 - **Configuration system tests:** `test_config.py` covers config loading, defaults, validation, and error handling.
 - **Logging system tests:** `test_logging.py` verifies the timestamp-based rolling file handler and compression behavior.
 - **Diagnostic agent tests:** `test_diagnostic.py` tests error log parsing, diagnostic reporting, and the LLM agentic loop (using mocked Anthropic client responses — no real API calls in CI).
-- **Briefing agent tests:** `test_briefing.py` tests stat collection, prompt formatting, headline fetching, and the LLM agentic loop (mocked — no real API calls in CI).
+- **Briefing agent tests:** `test_briefing.py` tests stat collection, sentiment enrichment, confidence-threshold filtering, prompt formatting, and the LLM agentic loop (mocked — no real API calls in CI).
+- **Sentiment tests:** `test_sentiment.py` tests finBERT scoring (pipeline mocking, label normalisation, score rounding).
+- **E2E deterministic tests:** `test_e2e_deterministic.py` runs against the live Finnhub API; skipped in CI unless a real `FINNHUB_API_KEY` is provided (`uv run pytest -m e2e`).
 - **Monitor agent tests:** `test_monitor.py` covers run() success/failure/partial, gauge value correctness, OTel provider wiring, and GAUGE_SPECS contract.
 - **Test fixtures:** `conftest.py` sets `FINNHUB_API_KEY` to a harmless default for test imports and ensures test runners can find the package.
 

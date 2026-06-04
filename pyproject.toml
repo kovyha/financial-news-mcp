@@ -26,6 +26,10 @@ dev = [
 diagnostic = [
     "anthropic>=0.50.0",
 ]
+sentiment = [
+    "transformers>=4.30.0",
+    "torch>=2.0",
+]
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
@@ -40,6 +44,12 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
+
+[tool.pytest.ini_options]
+markers = [
+    "e2e: end-to-end tests against the live Finnhub API (requires a real FINNHUB_API_KEY)",
+    "sentiment: tests that load the real finBERT model (requires `uv sync --group sentiment`)",
+]
 
 [tool.coverage.report]
 fail_under = 95

@@ -109,6 +109,14 @@ def _setup_logger() -> logging.Logger:
     log.setLevel(logging.DEBUG)
     log.addHandler(app_handler)
     log.addHandler(error_handler)
+
+    root = logging.getLogger()
+    root.setLevel(_LOG_LEVEL)
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(_LOG_LEVEL)
+    console_handler.setFormatter(fmt)
+    root.addHandler(console_handler)
+
     return log
 
 

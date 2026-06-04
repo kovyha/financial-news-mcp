@@ -21,6 +21,7 @@ import anthropic
 # to the financial_news logger before analysis module-level code runs.
 from financial_news import (
     log_setup,  # noqa: F401
+    sentiment,
     snapshot,
 )
 from financial_news.analysis import compute_volume_stats, fetch_news
@@ -55,19 +56,107 @@ def _collect_stats(tickers: list[str], z_score_cap: float) -> list[dict]:
     return results
 
 
-def _format_stats_for_prompt(stats: list[dict]) -> str:
+def _enrich_stats_with_sentiment(
+    stats: list[dict],
+    model_name: str,
+    valid_labels: frozenset[str],
+) -> list[dict]:
+    """Add headline_sentiment field to each stat entry using finBERT scoring.
+
+    Scores all headlines per ticker, drawn from recent_headlines (all today's
+    articles) if present, falling back to the top-5 headlines field otherwise.
+    Tickers with no headlines (zero-news baseline) receive an empty
+    headline_sentiment list.
+    """
+    enriched = []
+    for s in stats:
+        if "error" in s:
+            enriched.append(s)
+            continue
+        recent = s.get("recent_headlines") or []
+        headlines = s.get("headlines") or []
+        source = recent or headlines
+        logger.info(
+            "ticker=%s recent_headlines=%d headlines=%d source=%d",
+            s.get("ticker", "?"),
+            len(recent),
+            len(headlines),
+            len(source),
+        )
+        if not source:
+            logger.info("ticker=%s has no headlines to score", s.get("ticker", "?"))
+            enriched.append({**s, "headline_sentiment": []})
+            continue
+        scored = sentiment.score_headlines(source, model_name, valid_labels)
+        label_counts = {}
+        for item in scored:
+            label_counts[item["label"]] = label_counts.get(item["label"], 0) + 1
+        logger.info(
+            "ticker=%s scored %d headlines label_counts=%s",
+            s.get("ticker", "?"),
+            len(scored),
+            label_counts,
+        )
+        enriched.append({**s, "headline_sentiment": scored})
+    return enriched
+
+
+def _select_prompt_headlines(
+    scored: list[dict],
+    confidence_threshold: float,
+    min_headlines: int,
+    max_headlines: int,
+) -> list[dict]:
+    """Select headlines for the LLM prompt using confidence-threshold filtering.
+
+    Returns headlines with score >= confidence_threshold, clamped to
+    [min_headlines, max_headlines]. When too few meet the threshold the
+    top-scoring headlines fill up to min_headlines regardless of threshold.
+    """
+    by_score = sorted(scored, key=lambda x: x["score"], reverse=True)
+    confident = [item for item in by_score if item["score"] >= confidence_threshold]
+    if len(confident) < min_headlines:
+        return by_score[:min_headlines]
+    return confident[:max_headlines]
+
+
+def _format_stats_for_prompt(
+    stats: list[dict],
+    confidence_threshold: float,
+    min_headlines: int,
+    max_headlines: int,
+) -> str:
     """Format collected stats as a readable block for the LLM prompt."""
     sections = []
     for s in stats:
         if "error" in s:
             sections.append(f"**{s['ticker']}**: ERROR — fetch failed")
             continue
-        headlines = s.get("headlines", [])
-        headline_text = (
-            "\n  ".join(f"- {h}" for h in headlines)
-            if headlines
-            else "(no headlines today)"
-        )
+        scored = s.get("headline_sentiment")
+        if scored and any(item["label"] != "unavailable" for item in scored):
+            top = _select_prompt_headlines(
+                scored, confidence_threshold, min_headlines, max_headlines
+            )
+            for item in top:
+                logger.info(
+                    "prompt_headline ticker=%s sentiment_label=%s"
+                    " sentiment_score=%.4f headline=%r",
+                    s["ticker"],
+                    item["label"],
+                    item["score"],
+                    item["headline"],
+                )
+            headline_text = "\n  ".join(
+                f"- [{item['label']} {item['score']:.2f}] {item['headline']}"
+                for item in top
+            )
+        else:
+            headlines = s.get("headlines", [])
+            headline_text = (
+                "\n  ".join(f"- {h}" for h in headlines)
+                if headlines
+                else "(no headlines today)"
+            )
         sections.append(
             f"**{s['ticker']}**: z={s['z_score']:.2f}, count={s['recent_count']},"
             f" classification={s['classification']}\n  {headline_text}"
@@ -99,7 +188,13 @@ def _fetch_headlines_for_tool(
 
 
 def _run_briefing(
-    stats: list[dict], baseline_days: int, headline_days: int, max_headlines: int
+    stats: list[dict],
+    baseline_days: int,
+    headline_days: int,
+    max_headlines: int,
+    confidence_threshold: float,
+    prompt_headlines_min: int,
+    prompt_headlines_max: int,
 ) -> str:
     """Call Claude to produce a daily market briefing over the collected stats."""
     client = anthropic.Anthropic()
@@ -122,7 +217,9 @@ def _run_briefing(
             },
         }
     ]
-    stats_block = _format_stats_for_prompt(stats)
+    stats_block = _format_stats_for_prompt(
+        stats, confidence_threshold, prompt_headlines_min, prompt_headlines_max
+    )
     prompt = (
         f"Today is {datetime.now(timezone.utc).date().isoformat()} (UTC)."
         " You are producing a daily news-volume "
@@ -169,11 +266,19 @@ def main() -> int:
     stats = snapshot.read(Path(cfg.monitor.snapshot_path))
     if stats is None:
         stats = _collect_stats(cfg.monitor.tickers, cfg.analysis.z_score_cap)
+    stats = _enrich_stats_with_sentiment(
+        stats,
+        cfg.sentiment.model_name,
+        frozenset(cfg.sentiment.labels),
+    )
     briefing_text = _run_briefing(
         stats,
         cfg.analysis.baseline_days,
         cfg.briefing.headline_days,
         cfg.briefing.max_headlines,
+        cfg.briefing.confidence_threshold,
+        cfg.briefing.prompt_headlines_min,
+        cfg.briefing.prompt_headlines_max,
     )
     print()
     print("=" * 60)

@@ -19,6 +19,10 @@ on:
         description: 'Run the briefing agent after the monitor'
         type: boolean
         default: true
+      sentiment_model:
+        description: 'finBERT model for sentiment scoring (leave blank for default: ProsusAI/finbert)'
+        type: string
+        default: ''
 
 jobs:
   daily:
@@ -39,6 +43,12 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-groups
 
+      - name: Cache HuggingFace models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface/hub
+          key: hf-${{ runner.os }}-ProsusAI-finbert
+
       - name: Run monitoring agent
         env:
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
@@ -55,6 +65,8 @@ jobs:
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
           EMAIL_RECIPIENTS: ${{ secrets.EMAIL_RECIPIENTS }}
+          SENTIMENT_MODEL_NAME: ${{ github.event.inputs.sentiment_model }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: uv run python -m financial_news.briefing
 
       - name: Run diagnostic agent on failure

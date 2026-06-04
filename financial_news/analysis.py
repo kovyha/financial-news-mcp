@@ -253,6 +253,7 @@ def compute_volume_stats(symbol: str) -> dict:
     )
 
     headlines = [article["headline"] for article in recent[:5]]
+    recent_headlines = [article["headline"] for article in recent]
     logger.debug(
         "compute_volume_stats symbol=%s headlines_passed_to_model=%s",
         symbol,
@@ -266,5 +267,6 @@ def compute_volume_stats(symbol: str) -> dict:
         "z_score": z_score,
         "classification": classification,
         "headlines": headlines,
+        "recent_headlines": recent_headlines,
         "baseline_counts": baseline_counts,
     }
