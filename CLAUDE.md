@@ -48,9 +48,21 @@ uv run pytest --cov=financial_news --cov-report=term-missing -q
 
 Coverage threshold is enforced by `pyproject.toml`. Do not drop it.
 
-## Pre-push checklist — complete before every `git push`
+## Gates
 
-- [ ] Update any affected docs (`README.md`, `CLAUDE.md`, `docs/*.md`, `CONTRIBUTING.md`) to reflect the change
+### Before any commit or push
+
+Spawn the `pre-commit` subagent immediately after staging files — no intermediate commands, no summary to the user first. Only proceed to ask the user for commit and push approval if it reports **Overall: PASS**. On approval, commit locally and then push to remote in the same step.
+
+```
+Agent(subagent_type="pre-commit", prompt="Run the pre-commit checklist.")
+```
+
+Agent definition: [.claude/agents/pre-commit.md](.claude/agents/pre-commit.md)
+
+The agent runs: lint → auto-fix → full test suite → secrets scan → coverage check → documentation currency check.
+
+Documentation currency check must verify that any affected docs (`README.md`, `CLAUDE.md`, `docs/*.md`, `CONTRIBUTING.md`) reflect the change.
 
 ## Protected files — require explicit human instruction to modify
 
