@@ -134,8 +134,18 @@ def _format_stats_for_prompt(
             continue
         scored = s.get("headline_sentiment")
         if scored and any(item["label"] != "unavailable" for item in scored):
+            candidates = scored
+            if s.get("classification") in ("elevated", "unusual"):
+                non_neutral = [
+                    item
+                    for item in scored
+                    if item["label"] != "neutral"
+                    or item["score"] < confidence_threshold
+                ]
+                if non_neutral:
+                    candidates = non_neutral
             top = _select_prompt_headlines(
-                scored, confidence_threshold, min_headlines, max_headlines
+                candidates, confidence_threshold, min_headlines, max_headlines
             )
             for item in top:
                 logger.info(

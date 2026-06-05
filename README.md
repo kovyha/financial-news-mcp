@@ -44,6 +44,7 @@ All watchlist headlines are scored locally by [finBERT](https://huggingface.co/P
 - Headlines with finBERT confidence ≥ `confidence_threshold` (default: 0.85) are included
 - If fewer than `prompt_headlines_min` (default: 5) clear the bar, the top-scoring headlines fill the gap
 - No more than `prompt_headlines_max` (default: 50) headlines are passed per ticker
+- For `elevated` and `unusual` tickers, high-confidence neutral headlines (score ≥ `confidence_threshold`) are discarded before selection — they are either low-signal or feed noise; weakly-neutral headlines (score < threshold) are kept as borderline signals
 - All thresholds are configurable in `config.toml`
 
 ### CI pipeline
