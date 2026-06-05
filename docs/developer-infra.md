@@ -16,7 +16,8 @@ For the canonical contributor workflow and validation commands, see `CONTRIBUTIN
 - `financial_news/` — package directory:
   - `server.py` — MCP server exposing tools (`get_news_volume`, `health_check`).
   - `config.py` — configuration loader for logging and analysis settings (baseline window, classification thresholds).
-  - `briefing.py` — daily briefing agent; scores all watchlist headlines with finBERT sentiment, filters to high-confidence signals, then calls Claude to produce a plain-language briefing.
+  - `briefing.py` — daily briefing agent; runs the enrichment pipeline over watchlist stats, then calls Claude to produce a plain-language briefing.
+  - `enrichment.py` — centralised enrichment pipeline: finBERT scoring, confidence-threshold article selection, and neutral-article filtering for elevated/unusual tickers; used by both the MCP server and the briefing agent.
   - `sentiment.py` — finBERT sentiment scoring; deterministic preprocessing for the briefing agent. Requires the `sentiment` dep group (`uv sync --group sentiment`).
   - `diagnostic.py` — LLM-powered diagnostic agent; reads error logs then calls Claude to identify root cause and propose a fix.
   - `monitor.py` — daily monitoring agent; pushes z-score/count/EWM mean as OTel gauges to Grafana Cloud.
@@ -50,6 +51,7 @@ These env vars are read by `load_config` when no `config.toml` is present — us
 
 | Env var | Overrides | Example |
 |---|---|---|
+| `LOG_LEVEL` | `[logging] level` | `DEBUG` or `INFO` (takes precedence over config.toml when both are present) |
 | `SENTIMENT_MODEL_NAME` | `[sentiment] model_name` | `ProsusAI/finbert` |
 | `EMAIL_RECIPIENTS` | `[email] recipients` | `you@example.com,other@example.com` |
 | `SMTP_HOST` | `[email] smtp_host` | `smtp.gmail.com` |
@@ -78,7 +80,8 @@ python -m pip install -r requirements.txt  # if you maintain one
 - **Configuration system tests:** `test_config.py` covers config loading, defaults, validation, and error handling.
 - **Logging system tests:** `test_logging.py` verifies the timestamp-based rolling file handler and compression behavior.
 - **Diagnostic agent tests:** `test_diagnostic.py` tests error log parsing, diagnostic reporting, and the LLM agentic loop (using mocked Anthropic client responses — no real API calls in CI).
-- **Briefing agent tests:** `test_briefing.py` tests stat collection, sentiment enrichment, confidence-threshold filtering, prompt formatting, and the LLM agentic loop (mocked — no real API calls in CI).
+- **Briefing agent tests:** `test_briefing.py` tests stat collection, prompt formatting, and the LLM agentic loop (mocked — no real API calls in CI).
+- **Enrichment pipeline tests:** `test_enrichment.py` tests `enrich_stats`, `enrich_ticker`, and `select_articles` — covering sentiment scoring, confidence-threshold filtering, neutral-article discarding for elevated/unusual tickers, and fallback behaviour for zero-news tickers.
 - **Sentiment tests:** `test_sentiment.py` tests finBERT scoring (pipeline mocking, label normalisation, score rounding).
 - **E2E deterministic tests:** `test_e2e_deterministic.py` runs against the live Finnhub API; skipped in CI unless a real `FINNHUB_API_KEY` is provided (`uv run pytest -m e2e`).
 - **Monitor agent tests:** `test_monitor.py` covers run() success/failure/partial, gauge value correctness, OTel provider wiring, and GAUGE_SPECS contract.

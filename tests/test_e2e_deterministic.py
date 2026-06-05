@@ -284,20 +284,22 @@ def test_score_headlines_headline_preserved(stats):
 
 
 @_sentiment_deps
-def test_enrich_stats_with_sentiment_full_pipeline(stats):
-    """_enrich_stats_with_sentiment produces valid headline_sentiment on real data."""
-    from financial_news.briefing import _enrich_stats_with_sentiment
+def test_enrich_stats_full_pipeline(stats):
+    """enrich_stats produces valid headline_sentiment and selected_articles."""
     from financial_news.config import load_config
+    from financial_news.enrichment import EnrichmentConfig, enrich_stats
 
     cfg = load_config()
-    enriched = _enrich_stats_with_sentiment(
-        [stats],
-        cfg.sentiment.model_name,
-        frozenset(cfg.sentiment.labels),
+    enrich_cfg = EnrichmentConfig(
+        model_name=cfg.sentiment.model_name,
+        valid_labels=frozenset(cfg.sentiment.labels),
+        confidence_threshold=cfg.briefing.confidence_threshold,
+        min_articles=cfg.briefing.prompt_headlines_min,
+        max_articles=cfg.briefing.prompt_headlines_max,
     )
-    assert len(enriched) == 1
-    result = enriched[0]
+    result = enrich_stats(stats, enrich_cfg)
     assert "headline_sentiment" in result
+    assert "selected_articles" in result
 
     valid = frozenset(cfg.sentiment.labels)
     for entry in result["headline_sentiment"]:
@@ -309,10 +311,17 @@ def test_enrich_stats_with_sentiment_full_pipeline(stats):
 @_sentiment_deps
 def test_enrich_stats_zero_news_ticker_skips_scoring():
     """Zero-news ticker (no recent or baseline articles) gets empty sentiment list."""
-    from financial_news.briefing import _enrich_stats_with_sentiment
     from financial_news.config import load_config
+    from financial_news.enrichment import EnrichmentConfig, enrich_stats
 
     cfg = load_config()
+    enrich_cfg = EnrichmentConfig(
+        model_name=cfg.sentiment.model_name,
+        valid_labels=frozenset(cfg.sentiment.labels),
+        confidence_threshold=cfg.briefing.confidence_threshold,
+        min_articles=cfg.briefing.prompt_headlines_min,
+        max_articles=cfg.briefing.prompt_headlines_max,
+    )
     zero_news = {
         "ticker": "SYNTHETIC_ZERO",
         "recent_count": 0,
@@ -322,11 +331,9 @@ def test_enrich_stats_zero_news_ticker_skips_scoring():
         "classification": "normal",
         "headlines": [],
         "recent_headlines": [],
+        "recent_articles": [],
         "baseline_counts": [0.0] * cfg.analysis.baseline_days,
     }
-    enriched = _enrich_stats_with_sentiment(
-        [zero_news],
-        cfg.sentiment.model_name,
-        frozenset(cfg.sentiment.labels),
-    )
-    assert enriched[0]["headline_sentiment"] == []
+    result = enrich_stats(zero_news, enrich_cfg)
+    assert result["headline_sentiment"] == []
+    assert result["selected_articles"] == []

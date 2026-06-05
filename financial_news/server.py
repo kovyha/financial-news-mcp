@@ -7,11 +7,22 @@ from mcp.server.fastmcp import FastMCP
 # log_setup must be imported before analysis so handlers are attached
 # to the financial_news logger before analysis module-level code runs.
 from financial_news import log_setup  # noqa: F401
-from financial_news.analysis import BASELINE_DAYS, client, compute_volume_stats
+from financial_news.analysis import client
+from financial_news.config import load_config
+from financial_news.enrichment import EnrichmentConfig, enrich_ticker
 
 logger = logging.getLogger(__name__)
 
 mcp = FastMCP("financial-news")
+
+_cfg = load_config()
+_enrich_cfg = EnrichmentConfig(
+    model_name=_cfg.sentiment.model_name,
+    valid_labels=frozenset(_cfg.sentiment.labels),
+    confidence_threshold=_cfg.briefing.confidence_threshold,
+    min_articles=_cfg.briefing.prompt_headlines_min,
+    max_articles=_cfg.briefing.prompt_headlines_max,
+)
 
 
 @mcp.tool()
@@ -50,62 +61,51 @@ def health_check() -> str:
 
 
 @mcp.tool()
-def get_news_volume(symbol: str) -> str:
+def get_news_volume(symbol: str) -> dict:
     """Detect unusual news volume for a stock symbol.
 
     Deterministic layer (this function):
       - Fetches raw article data from Finnhub over defined date windows.
-      - Computes article counts, mean, standard deviation, and z-score using NumPy.
+      - Computes article counts, mean, standard deviation, and z-score.
       - Classifies the signal as normal / elevated / unusual against fixed thresholds.
-      - Returns a structured string: symbol, counts, statistics, classification,
-        headlines.
+      - Enriches articles with finBERT sentiment and applies confidence-threshold
+        selection (with neutral-article filtering for elevated/unusual tickers).
+      - Returns structured data: symbol, counts, statistics, classification, articles.
 
     LLM reasoning layer (the caller — Claude via MCP):
       - Receives the structured output above as tool result context.
-      - Interprets what a statistically significant spike may mean given the headlines,
-        market context, and any other information available to it.
+      - Interprets what a statistically significant spike may mean given the articles,
+        sentiment signals, and its broader knowledge.
       - All model judgement begins after this function returns; none occurs inside it.
 
-    This boundary means the signal is fully auditable without involving the model:
-    the inputs, computation, and classification can be reproduced and verified
-    independently of any LLM inference.
+    This boundary means the signal is fully auditable without involving a
+    non-deterministic model: the inputs, computation, and classification can be
+    reproduced and verified independently of any generative LLM inference.
+    finBERT is a fixed-weight classification model — given the same input it
+    produces the same output.
     """
     logger.info("get_news_volume called symbol=%s", symbol)
 
-    stats = compute_volume_stats(symbol)
-    recent_count = stats["recent_count"]
-    mean = stats["mean"]
-    std = stats["std"]
-    z_score = stats["z_score"]
-    classification = stats["classification"]
-    headlines = stats["headlines"]
+    enriched = enrich_ticker(symbol, _enrich_cfg)
 
-    summary_lines = [
-        f"Symbol: {symbol}",
-        f"News articles (last 24hrs): {recent_count}",
-        f"Mean ({BASELINE_DAYS}-day EWM): {mean:.1f}",
-        f"Std Dev ({BASELINE_DAYS}-day EWM): {std:.1f}",
-        f"Z-score: {z_score:.1f}",
-    ]
-
-    if classification == "normal":
-        summary_lines.append("✅ Normal news volume")
-    elif classification == "elevated":
-        summary_lines.append("⚠️ Elevated news volume")
-    else:
-        summary_lines.append("🚨 Unusual news volume detected")
-
-    if recent_count == 0 and mean == 0.0:
-        summary_lines.append(
-            "No news data found for this symbol. This may mean the ticker is "
-            "invalid, unsupported, or simply has no recent coverage."
-        )
-
-    summary_lines.append("")
-    summary_lines.append("Recent headlines:")
-    summary_lines.extend(f"- {headline}" for headline in headlines)
-
-    return "\n".join(summary_lines) + "\n"
+    z = enriched["z_score"]
+    return {
+        "symbol": symbol,
+        "recent_count": enriched["recent_count"],
+        "ewm_mean": round(enriched["mean"], 2),
+        "ewm_std": round(enriched["std"], 2),
+        "z_score": z,
+        "classification": enriched["classification"],
+        "articles": [
+            {
+                "headline": item["headline"],
+                "summary": item["summary"],
+                "label": item["label"],
+                "score": item["score"],
+            }
+            for item in enriched.get("selected_articles", [])
+        ],
+    }
 
 
 if __name__ == "__main__":

@@ -84,6 +84,13 @@ def score_headlines(
             }
             for a in articles
         ]
+    with_summary = sum(1 for a in articles if a.get("summary"))
+    logger.debug(
+        "score_headlines articles=%d with_summary=%d headline_only=%d",
+        len(articles),
+        with_summary,
+        len(articles) - with_summary,
+    )
     try:
         results = pipe(texts, truncation=True, max_length=512)
         scored = []

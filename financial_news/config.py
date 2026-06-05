@@ -87,6 +87,14 @@ class Config:
     email: EmailConfig | None = None
 
 
+def _logging_config_from_env() -> LoggingConfig:
+    """Override log level from LOG_LEVEL env var (INFO or DEBUG)."""
+    level = os.environ.get("LOG_LEVEL", "").strip().upper()
+    if level in ("INFO", "DEBUG"):
+        return LoggingConfig(level=level)
+    return LoggingConfig()
+
+
 def _email_config_from_env() -> EmailConfig | None:
     """Build EmailConfig from environment variables, or return None if not configured.
 
@@ -125,7 +133,10 @@ def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
             if sentiment_model_env
             else SentimentConfig()
         )
-        return Config(email=_email_config_from_env(), sentiment=sentiment)
+        log_cfg = _logging_config_from_env()
+        return Config(
+            logging=log_cfg, email=_email_config_from_env(), sentiment=sentiment
+        )
 
     with open(path, "rb") as f:
         data = tomllib.load(f)
@@ -138,7 +149,10 @@ def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
             f"config.toml [logging] contains unrecognised keys: {sorted(unknown)}"
         )
 
-    level = log_data.get("level", LoggingConfig.level).upper()
+    level = (
+        os.environ.get("LOG_LEVEL", "").strip().upper()
+        or log_data.get("level", LoggingConfig.level).upper()
+    )
     if level not in ("INFO", "DEBUG"):
         raise ValueError(
             f"config.toml [logging] level must be INFO or DEBUG, got: {level!r}"

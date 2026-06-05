@@ -21,7 +21,8 @@ Never move business logic (z-score math, classification thresholds, Finnhub fetc
 | [financial_news/server.py](financial_news/server.py) | MCP server, tool definitions, orchestration |
 | [financial_news/analysis.py](financial_news/analysis.py) | Z-score computation and EWM baseline logic |
 | [financial_news/config.py](financial_news/config.py) | Config loader — thresholds, baseline window, logging settings |
-| [financial_news/briefing.py](financial_news/briefing.py) | Daily briefing agent — computes watchlist z-scores, enriches headlines with finBERT sentiment, and calls Claude (Opus 4.7) to reason over elevated/unusual tickers |
+| [financial_news/briefing.py](financial_news/briefing.py) | Daily briefing agent — computes watchlist z-scores via the enrichment pipeline and calls Claude (Opus 4.7) to reason over elevated/unusual tickers |
+| [financial_news/enrichment.py](financial_news/enrichment.py) | Centralised enrichment pipeline — finBERT scoring, confidence-threshold article selection, and neutral-article filtering for elevated/unusual tickers; used by both the MCP server and the briefing agent |
 | [financial_news/sentiment.py](financial_news/sentiment.py) | finBERT sentiment scoring — deterministic preprocessing for the briefing; requires the `sentiment` dep group |
 | [financial_news/diagnostic.py](financial_news/diagnostic.py) | LLM-powered diagnostic agent — reads error logs, then calls Claude (Opus 4.7) to identify root cause and propose a fix |
 | [financial_news/monitor.py](financial_news/monitor.py) | Daily monitoring agent — fetches watchlist z-scores and exports OTel gauges to Grafana Cloud |

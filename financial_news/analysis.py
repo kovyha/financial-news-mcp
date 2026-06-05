@@ -25,6 +25,7 @@ _cfg = load_config()
 THRESHOLD_ELEVATED: float = _cfg.analysis.threshold_elevated
 THRESHOLD_UNUSUAL: float = _cfg.analysis.threshold_unusual
 BASELINE_DAYS: int = _cfg.analysis.baseline_days
+Z_SCORE_CAP: float = _cfg.analysis.z_score_cap
 
 # Registry of numeric outputs from compute_volume_stats that should be exported
 # as OTel gauges. Each entry is (stats_key, otel_metric_name, description).
@@ -231,7 +232,7 @@ def compute_volume_stats(symbol: str) -> dict:
     mean, std = _ewma_mean_std(baseline_counts, span=BASELINE_DAYS)
 
     recent_count = len(recent)
-    z_score = calculate_z_score(recent_count, mean, std)
+    z_score = min(calculate_z_score(recent_count, mean, std), Z_SCORE_CAP)
 
     if z_score < THRESHOLD_ELEVATED:
         classification = "normal"
@@ -239,18 +240,6 @@ def compute_volume_stats(symbol: str) -> dict:
         classification = "elevated"
     else:
         classification = "unusual"
-
-    logger.info(
-        "compute_volume_stats symbol=%s tz=%s recent_count=%d ewm_mean=%.2f "
-        "ewm_std=%.2f z_score=%.2f classification=%s",
-        symbol,
-        tz.key,
-        recent_count,
-        mean,
-        std,
-        z_score,
-        classification,
-    )
 
     headlines = [article["headline"] for article in recent[:5]]
     recent_headlines = [article["headline"] for article in recent]
@@ -261,10 +250,25 @@ def compute_volume_stats(symbol: str) -> dict:
     recent_articles = [
         {"headline": a["headline"], "summary": a.get("summary") or ""} for a in recent
     ]
-    logger.debug(
-        "compute_volume_stats symbol=%s headlines_passed_to_model=%s",
+
+    articles_with_summary = sum(1 for a in recent_articles if a["summary"])
+    logger.info(
+        "compute_volume_stats symbol=%s tz=%s recent_count=%d ewm_mean=%.2f "
+        "ewm_std=%.2f z_score=%.2f classification=%s articles_with_summary=%d/%d",
         symbol,
-        headlines,
+        tz.key,
+        recent_count,
+        mean,
+        std,
+        z_score,
+        classification,
+        articles_with_summary,
+        recent_count,
+    )
+    logger.debug(
+        "compute_volume_stats symbol=%s articles_passed_to_model=%s",
+        symbol,
+        [{"headline": a["headline"], "summary": a["summary"]} for a in articles],
     )
 
     return {

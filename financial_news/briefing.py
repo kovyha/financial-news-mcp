@@ -21,12 +21,12 @@ import anthropic
 # to the financial_news logger before analysis module-level code runs.
 from financial_news import (
     log_setup,  # noqa: F401
-    sentiment,
     snapshot,
 )
 from financial_news.analysis import compute_volume_stats, fetch_news
 from financial_news.config import load_config
 from financial_news.email_report import send_run_summary
+from financial_news.enrichment import EnrichmentConfig, enrich_stats
 
 logger = logging.getLogger(__name__)
 
@@ -35,13 +35,12 @@ _MAX_TOKENS = 4096
 _THINKING = {"type": "adaptive"}
 
 
-def _collect_stats(tickers: list[str], z_score_cap: float) -> list[dict]:
+def _collect_stats(tickers: list[str]) -> list[dict]:
     """Compute volume stats for each ticker, returning a list of result dicts."""
     results = []
     for ticker in tickers:
         try:
             stats = compute_volume_stats(ticker)
-            stats["z_score"] = min(stats["z_score"], z_score_cap)
             stats["ticker"] = ticker
             results.append(stats)
             logger.info(
@@ -56,109 +55,17 @@ def _collect_stats(tickers: list[str], z_score_cap: float) -> list[dict]:
     return results
 
 
-def _enrich_stats_with_sentiment(
-    stats: list[dict],
-    model_name: str,
-    valid_labels: frozenset[str],
-) -> list[dict]:
-    """Add headline_sentiment field to each stat entry using finBERT scoring.
-
-    Scores all headlines per ticker, drawn from recent_headlines (all today's
-    articles) if present, falling back to the top-5 headlines field otherwise.
-    Tickers with no headlines (zero-news baseline) receive an empty
-    headline_sentiment list.
-    """
-    enriched = []
-    for s in stats:
-        if "error" in s:
-            enriched.append(s)
-            continue
-        source = s.get("recent_articles") or []
-        if not source:
-            # Fall back to headline strings from older snapshots that predate
-            # the recent_articles field.
-            strings = s.get("recent_headlines") or s.get("headlines") or []
-            source = [{"headline": h, "summary": ""} for h in strings]
-        logger.info(
-            "ticker=%s articles_to_score=%d",
-            s.get("ticker", "?"),
-            len(source),
-        )
-        if not source:
-            logger.info("ticker=%s has no articles to score", s.get("ticker", "?"))
-            enriched.append({**s, "headline_sentiment": []})
-            continue
-        scored = sentiment.score_headlines(source, model_name, valid_labels)
-        label_counts = {}
-        for item in scored:
-            label_counts[item["label"]] = label_counts.get(item["label"], 0) + 1
-        logger.info(
-            "ticker=%s scored %d headlines label_counts=%s",
-            s.get("ticker", "?"),
-            len(scored),
-            label_counts,
-        )
-        enriched.append({**s, "headline_sentiment": scored})
-    return enriched
-
-
-def _select_prompt_headlines(
-    scored: list[dict],
-    confidence_threshold: float,
-    min_headlines: int,
-    max_headlines: int,
-) -> list[dict]:
-    """Select headlines for the LLM prompt using confidence-threshold filtering.
-
-    Returns headlines with score >= confidence_threshold, clamped to
-    [min_headlines, max_headlines]. When too few meet the threshold the
-    top-scoring headlines fill up to min_headlines regardless of threshold.
-    """
-    by_score = sorted(scored, key=lambda x: x["score"], reverse=True)
-    confident = [item for item in by_score if item["score"] >= confidence_threshold]
-    if len(confident) < min_headlines:
-        return by_score[:min_headlines]
-    return confident[:max_headlines]
-
-
-def _format_stats_for_prompt(
-    stats: list[dict],
-    confidence_threshold: float,
-    min_headlines: int,
-    max_headlines: int,
-) -> str:
-    """Format collected stats as a readable block for the LLM prompt."""
+def _format_stats_for_prompt(stats: list[dict]) -> str:
+    """Format enriched stats as a readable block for the LLM prompt."""
     sections = []
     for s in stats:
         if "error" in s:
             sections.append(f"**{s['ticker']}**: ERROR — fetch failed")
             continue
-        scored = s.get("headline_sentiment")
-        if scored and any(item["label"] != "unavailable" for item in scored):
-            candidates = scored
-            if s.get("classification") in ("elevated", "unusual"):
-                non_neutral = [
-                    item
-                    for item in scored
-                    if item["label"] != "neutral"
-                    or item["score"] < confidence_threshold
-                ]
-                if non_neutral:
-                    candidates = non_neutral
-            top = _select_prompt_headlines(
-                candidates, confidence_threshold, min_headlines, max_headlines
-            )
-            for item in top:
-                logger.info(
-                    "prompt_headline ticker=%s sentiment_label=%s"
-                    " sentiment_score=%.4f headline=%r",
-                    s["ticker"],
-                    item["label"],
-                    item["score"],
-                    item["headline"],
-                )
+        selected = s.get("selected_articles") or []
+        if selected and any(item["label"] != "unavailable" for item in selected):
             parts = []
-            for item in top:
+            for item in selected:
                 line = f"- [{item['label']} {item['score']:.2f}] {item['headline']}"
                 if item.get("summary"):
                     line += f"\n    {item['summary']}"
@@ -210,9 +117,6 @@ def _run_briefing(
     baseline_days: int,
     headline_days: int,
     max_headlines: int,
-    confidence_threshold: float,
-    prompt_headlines_min: int,
-    prompt_headlines_max: int,
 ) -> str:
     """Call Claude to produce a daily market briefing over the collected stats."""
     client = anthropic.Anthropic()
@@ -235,9 +139,7 @@ def _run_briefing(
             },
         }
     ]
-    stats_block = _format_stats_for_prompt(
-        stats, confidence_threshold, prompt_headlines_min, prompt_headlines_max
-    )
+    stats_block = _format_stats_for_prompt(stats)
     prompt = (
         f"Today is {datetime.now(timezone.utc).date().isoformat()} (UTC)."
         " You are producing a daily news-volume "
@@ -283,20 +185,22 @@ def main() -> int:
     cfg = load_config()
     stats = snapshot.read(Path(cfg.monitor.snapshot_path))
     if stats is None:
-        stats = _collect_stats(cfg.monitor.tickers, cfg.analysis.z_score_cap)
-    stats = _enrich_stats_with_sentiment(
-        stats,
-        cfg.sentiment.model_name,
-        frozenset(cfg.sentiment.labels),
+        stats = _collect_stats(cfg.monitor.tickers)
+
+    enrich_cfg = EnrichmentConfig(
+        model_name=cfg.sentiment.model_name,
+        valid_labels=frozenset(cfg.sentiment.labels),
+        confidence_threshold=cfg.briefing.confidence_threshold,
+        min_articles=cfg.briefing.prompt_headlines_min,
+        max_articles=cfg.briefing.prompt_headlines_max,
     )
+    enriched = [enrich_stats(s, enrich_cfg) for s in stats]
+
     briefing_text = _run_briefing(
-        stats,
+        enriched,
         cfg.analysis.baseline_days,
         cfg.briefing.headline_days,
         cfg.briefing.max_headlines,
-        cfg.briefing.confidence_threshold,
-        cfg.briefing.prompt_headlines_min,
-        cfg.briefing.prompt_headlines_max,
     )
     print()
     print("=" * 60)
@@ -307,8 +211,8 @@ def main() -> int:
     print()
 
     if cfg.email is not None:
-        good_stats = [s for s in stats if "error" not in s]
-        failed_tickers = [s["ticker"] for s in stats if "error" in s]
+        good_stats = [s for s in enriched if "error" not in s]
+        failed_tickers = [s["ticker"] for s in enriched if "error" in s]
         send_run_summary(cfg.email, good_stats, failed_tickers, briefing_text)
 
     return 0
