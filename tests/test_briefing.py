@@ -311,9 +311,7 @@ def test_main_falls_back_to_collect_when_no_snapshot(monkeypatch, capsys):
     collect_called = []
     monkeypatch.setattr(
         "financial_news.briefing._collect_stats",
-        lambda tickers: (
-            collect_called.append(True) or [_sample_stats("NVDA")]
-        ),
+        lambda tickers: collect_called.append(True) or [_sample_stats("NVDA")],
     )
     monkeypatch.setattr("financial_news.briefing.enrich_stats", lambda s, *a, **kw: s)
     monkeypatch.setattr(
