@@ -32,7 +32,7 @@ For the canonical contributor workflow and validation commands, see `CONTRIBUTIN
   - `conftest.py` — pytest configuration and fixtures.
 - `docs/` — documentation for iterations and developer notes.
 - `.github/workflows/` — GitHub Actions CI/CD workflows:
-  - `ci.yaml` — baseline CI (`ruff check` + `pytest` on push and pull request, protected-file checks).
+  - `ci.yaml` — baseline CI (`ruff check` + `pytest` on push and pull request, protected-file checks); caches `ProsusAI/finbert` model weights and pre-downloads them before the test step so sentiment tests run without a live HuggingFace download.
   - `monitor.yaml` — daily run at 12:00 UTC (8am ET, pre-market); runs the monitor step (OTel gauges to Grafana Cloud), then the briefing step (finBERT sentiment + Claude analysis + email), and invokes the LLM diagnostic agent on failure. Disabled by default until secrets are configured.
 - `.github/CODEOWNERS` — code ownership and review requirements for governance files.
 - `config.example.toml` — example configuration file (copy to `config.toml` to customize).
