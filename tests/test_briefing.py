@@ -97,10 +97,18 @@ _TEST_LABELS = frozenset({"positive", "negative", "neutral"})
 
 
 def _mock_score(monkeypatch, label: str = "positive", score: float = 0.90):
-    """Patch sentiment.score_headlines to return a fixed label/score per headline."""
+    """Patch sentiment.score_headlines to return a fixed label/score per article."""
 
-    def fake_score(headlines, model_name, valid_labels):
-        return [{"headline": h, "label": label, "score": score} for h in headlines]
+    def fake_score(articles, model_name, valid_labels):
+        return [
+            {
+                "headline": a["headline"],
+                "summary": a.get("summary", ""),
+                "label": label,
+                "score": score,
+            }
+            for a in articles
+        ]
 
     monkeypatch.setattr(sentiment, "score_headlines", fake_score)
 
@@ -121,31 +129,62 @@ def test_enrich_adds_headline_sentiment(monkeypatch):
     assert len(enriched[0]["headline_sentiment"]) > 0
 
 
-def test_enrich_scores_from_recent_headlines(monkeypatch):
-    """recent_headlines is preferred over the top-5 headlines field."""
-    scored = []
+def test_enrich_scores_from_recent_articles(monkeypatch):
+    """recent_articles is preferred over the headline string fields."""
+    scored_headlines = []
 
-    def capture_score(headlines, model_name, valid_labels):
-        scored.extend(headlines)
-        return [{"headline": h, "label": "neutral", "score": 0.5} for h in headlines]
-
-    monkeypatch.setattr(sentiment, "score_headlines", capture_score)
-    _enrich([_sample_stats("NVDA")])
-    assert "Headline C" in scored
-
-
-def test_enrich_scores_all_available_headlines(monkeypatch):
-    """All available headlines are scored — no cap applied."""
-    scored = []
-
-    def capture_score(headlines, model_name, valid_labels):
-        scored.extend(headlines)
-        return [{"headline": h, "label": "positive", "score": 0.8} for h in headlines]
+    def capture_score(articles, model_name, valid_labels):
+        scored_headlines.extend(a["headline"] for a in articles)
+        return [
+            {
+                "headline": a["headline"],
+                "summary": a.get("summary", ""),
+                "label": "neutral",
+                "score": 0.5,
+            }  # noqa: E501
+            for a in articles
+        ]
 
     monkeypatch.setattr(sentiment, "score_headlines", capture_score)
-    s = {**_sample_stats("TSLA"), "recent_headlines": ["H1", "H2", "H3"]}
+    s = {
+        **_sample_stats("NVDA"),
+        "recent_articles": [
+            {"headline": "Headline A", "summary": ""},
+            {"headline": "Headline B", "summary": ""},
+            {"headline": "Headline C", "summary": ""},
+        ],
+    }
     _enrich([s])
-    assert len(scored) == 3
+    assert "Headline C" in scored_headlines
+
+
+def test_enrich_scores_all_available_articles(monkeypatch):
+    """All available articles are scored — no cap applied."""
+    scored_headlines = []
+
+    def capture_score(articles, model_name, valid_labels):
+        scored_headlines.extend(a["headline"] for a in articles)
+        return [
+            {
+                "headline": a["headline"],
+                "summary": a.get("summary", ""),
+                "label": "positive",
+                "score": 0.8,
+            }  # noqa: E501
+            for a in articles
+        ]
+
+    monkeypatch.setattr(sentiment, "score_headlines", capture_score)
+    s = {
+        **_sample_stats("TSLA"),
+        "recent_articles": [
+            {"headline": "H1", "summary": ""},
+            {"headline": "H2", "summary": ""},
+            {"headline": "H3", "summary": ""},
+        ],
+    }
+    _enrich([s])
+    assert len(scored_headlines) == 3
 
 
 def test_enrich_skips_error_entries(monkeypatch):
@@ -159,30 +198,43 @@ def test_enrich_zero_news_ticker_skips_scoring(monkeypatch):
     """Zero-news tickers get empty headline_sentiment without calling the scorer."""
     score_called = []
 
-    def capture_score(headlines, model_name, valid_labels):
-        score_called.append(headlines)
+    def capture_score(articles, model_name, valid_labels):
+        score_called.append(articles)
         return []
 
     monkeypatch.setattr(sentiment, "score_headlines", capture_score)
-    s = {**_sample_stats("PLUG"), "headlines": [], "recent_headlines": []}
+    s = {
+        **_sample_stats("PLUG"),
+        "headlines": [],
+        "recent_headlines": [],
+        "recent_articles": [],
+    }
     enriched = _enrich([s])
     assert enriched[0]["headline_sentiment"] == []
     assert not score_called, "score_headlines must not be called for zero-news tickers"
 
 
-def test_enrich_falls_back_to_headlines_when_no_recent(monkeypatch):
-    """Falls back to top-5 headlines if recent_headlines is absent."""
-    scored = []
+def test_enrich_falls_back_to_headline_strings_when_no_recent_articles(monkeypatch):
+    """Falls back to recent_headlines strings when recent_articles is absent."""
+    scored_headlines = []
 
-    def capture_score(headlines, model_name, valid_labels):
-        scored.extend(headlines)
-        return [{"headline": h, "label": "neutral", "score": 0.5} for h in headlines]
+    def capture_score(articles, model_name, valid_labels):
+        scored_headlines.extend(a["headline"] for a in articles)
+        return [
+            {
+                "headline": a["headline"],
+                "summary": a.get("summary", ""),
+                "label": "neutral",
+                "score": 0.5,
+            }  # noqa: E501
+            for a in articles
+        ]
 
     monkeypatch.setattr(sentiment, "score_headlines", capture_score)
     s = _sample_stats("AMD")
     del s["recent_headlines"]
     _enrich([s])
-    assert "Headline A" in scored
+    assert "Headline A" in scored_headlines
 
 
 # ── _select_prompt_headlines ──────────────────────────────────────────────────
@@ -190,7 +242,7 @@ def test_enrich_falls_back_to_headlines_when_no_recent(monkeypatch):
 
 def _scored(headlines_and_scores: list[tuple[str, float]]) -> list[dict]:
     return [
-        {"headline": h, "label": "positive", "score": s}
+        {"headline": h, "summary": "", "label": "positive", "score": s}
         for h, s in headlines_and_scores
     ]
 
@@ -241,8 +293,18 @@ def test_format_stats_with_sentiment():
     """Sentiment labels appear in the prompt when headline_sentiment is set."""
     s = _sample_stats("NVDA", "unusual")
     s["headline_sentiment"] = [
-        {"headline": "Nvidia beats estimates", "label": "positive", "score": 0.97},
-        {"headline": "Supply chain warning", "label": "negative", "score": 0.85},
+        {
+            "headline": "Nvidia beats estimates",
+            "summary": "",
+            "label": "positive",
+            "score": 0.97,
+        },  # noqa: E501
+        {
+            "headline": "Supply chain warning",
+            "summary": "",
+            "label": "negative",
+            "score": 0.85,
+        },  # noqa: E501
     ]
     text = briefing._format_stats_for_prompt([s], _CONF, _PMIN, _PMAX)
     assert "[positive 0.97]" in text
@@ -250,11 +312,26 @@ def test_format_stats_with_sentiment():
     assert "Nvidia beats estimates" in text
 
 
+def test_format_stats_shows_summary_when_present():
+    """Article summary appears in the prompt block when non-empty."""
+    s = _sample_stats("NVDA", "unusual")
+    s["headline_sentiment"] = [
+        {
+            "headline": "Nvidia beats estimates",
+            "summary": "EPS of $5.16 vs $4.59 expected.",
+            "label": "positive",
+            "score": 0.97,
+        },
+    ]
+    text = briefing._format_stats_for_prompt([s], _CONF, _PMIN, _PMAX)
+    assert "EPS of $5.16 vs $4.59 expected." in text
+
+
 def test_format_stats_falls_back_to_plain_when_all_unavailable():
     """Falls back to plain headline text if all sentiment labels are 'unavailable'."""
     s = _sample_stats("NVDA", "unusual")
     s["headline_sentiment"] = [
-        {"headline": "Headline A", "label": "unavailable", "score": 0.0},
+        {"headline": "Headline A", "summary": "", "label": "unavailable", "score": 0.0},
     ]
     text = briefing._format_stats_for_prompt([s], _CONF, _PMIN, _PMAX)
     assert "unavailable" not in text
@@ -284,6 +361,7 @@ def test_fetch_headlines_success(monkeypatch):
     mock_news = [
         {
             "headline": "Big news",
+            "summary": "Details on the acquisition.",
             "source": "Reuters",
             "datetime": int(time.time()),
         }
@@ -294,6 +372,7 @@ def test_fetch_headlines_success(monkeypatch):
     result = briefing._fetch_headlines_for_tool("NVDA", _DAYS, _MAX)
     assert "Big news" in result
     assert "Reuters" in result
+    assert "Details on the acquisition." in result
 
 
 def test_fetch_headlines_empty(monkeypatch):

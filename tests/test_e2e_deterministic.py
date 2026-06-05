@@ -194,29 +194,34 @@ _sentiment_deps = pytest.mark.skipif(
 
 @_sentiment_deps
 def test_score_headlines_result_length_matches_input(stats):
-    """score_headlines returns exactly one entry per headline."""
+    """score_headlines returns exactly one entry per article."""
     from financial_news.config import load_config
     from financial_news.sentiment import score_headlines
 
     cfg = load_config()
-    headlines = stats["recent_headlines"][:5] or ["No recent news for AAPL."]
+    articles = stats["recent_articles"][:5] or [
+        {"headline": "No recent news for AAPL.", "summary": ""}
+    ]  # noqa: E501
     valid = frozenset(cfg.sentiment.labels)
-    results = score_headlines(headlines, cfg.sentiment.model_name, valid)
-    assert len(results) == len(headlines)
+    results = score_headlines(articles, cfg.sentiment.model_name, valid)
+    assert len(results) == len(articles)
 
 
 @_sentiment_deps
 def test_score_headlines_result_has_required_keys(stats):
-    """Each scored entry has headline, label, and score keys."""
+    """Each scored entry has headline, summary, label, and score keys."""
     from financial_news.config import load_config
     from financial_news.sentiment import score_headlines
 
     cfg = load_config()
-    headlines = stats["recent_headlines"][:3] or ["Fallback headline for AAPL."]
+    articles = stats["recent_articles"][:3] or [
+        {"headline": "Fallback headline for AAPL.", "summary": ""}
+    ]  # noqa: E501
     valid = frozenset(cfg.sentiment.labels)
-    results = score_headlines(headlines, cfg.sentiment.model_name, valid)
+    results = score_headlines(articles, cfg.sentiment.model_name, valid)
     for entry in results:
         assert "headline" in entry
+        assert "summary" in entry
         assert "label" in entry
         assert "score" in entry
 
@@ -229,10 +234,10 @@ def test_score_headlines_labels_are_valid(stats):
 
     cfg = load_config()
     valid = frozenset(cfg.sentiment.labels)
-    headlines = stats["recent_headlines"][:5] or [
-        "Apple revenue rises on iPhone demand."
+    articles = stats["recent_articles"][:5] or [
+        {"headline": "Apple revenue rises on iPhone demand.", "summary": ""}
     ]
-    results = score_headlines(headlines, cfg.sentiment.model_name, valid)
+    results = score_headlines(articles, cfg.sentiment.model_name, valid)
     for entry in results:
         assert entry["label"] in valid, (
             f"unexpected label {entry['label']!r} for headline: {entry['headline']!r}"
@@ -246,9 +251,11 @@ def test_score_headlines_scores_are_in_range(stats):
     from financial_news.sentiment import score_headlines
 
     cfg = load_config()
-    headlines = stats["recent_headlines"][:5] or ["Apple reports quarterly results."]
+    articles = stats["recent_articles"][:5] or [
+        {"headline": "Apple reports quarterly results.", "summary": ""}
+    ]  # noqa: E501
     results = score_headlines(
-        headlines, cfg.sentiment.model_name, frozenset(cfg.sentiment.labels)
+        articles, cfg.sentiment.model_name, frozenset(cfg.sentiment.labels)
     )
     for entry in results:
         assert 0.0 <= entry["score"] <= 1.0, (
@@ -261,17 +268,19 @@ def test_score_headlines_scores_are_in_range(stats):
 
 @_sentiment_deps
 def test_score_headlines_headline_preserved(stats):
-    """The input headline is returned unchanged in each result entry."""
+    """The input headline string is returned unchanged in each result entry."""
     from financial_news.config import load_config
     from financial_news.sentiment import score_headlines
 
     cfg = load_config()
-    headlines = stats["recent_headlines"][:3] or ["Apple introduces new MacBook."]
+    articles = stats["recent_articles"][:3] or [
+        {"headline": "Apple introduces new MacBook.", "summary": ""}
+    ]  # noqa: E501
     results = score_headlines(
-        headlines, cfg.sentiment.model_name, frozenset(cfg.sentiment.labels)
+        articles, cfg.sentiment.model_name, frozenset(cfg.sentiment.labels)
     )
-    for original, entry in zip(headlines, results):
-        assert entry["headline"] == original
+    for article, entry in zip(articles, results):
+        assert entry["headline"] == article["headline"]
 
 
 @_sentiment_deps

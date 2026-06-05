@@ -73,18 +73,19 @@ def _enrich_stats_with_sentiment(
         if "error" in s:
             enriched.append(s)
             continue
-        recent = s.get("recent_headlines") or []
-        headlines = s.get("headlines") or []
-        source = recent or headlines
+        source = s.get("recent_articles") or []
+        if not source:
+            # Fall back to headline strings from older snapshots that predate
+            # the recent_articles field.
+            strings = s.get("recent_headlines") or s.get("headlines") or []
+            source = [{"headline": h, "summary": ""} for h in strings]
         logger.info(
-            "ticker=%s recent_headlines=%d headlines=%d source=%d",
+            "ticker=%s articles_to_score=%d",
             s.get("ticker", "?"),
-            len(recent),
-            len(headlines),
             len(source),
         )
         if not source:
-            logger.info("ticker=%s has no headlines to score", s.get("ticker", "?"))
+            logger.info("ticker=%s has no articles to score", s.get("ticker", "?"))
             enriched.append({**s, "headline_sentiment": []})
             continue
         scored = sentiment.score_headlines(source, model_name, valid_labels)
@@ -156,10 +157,13 @@ def _format_stats_for_prompt(
                     item["score"],
                     item["headline"],
                 )
-            headline_text = "\n  ".join(
-                f"- [{item['label']} {item['score']:.2f}] {item['headline']}"
-                for item in top
-            )
+            parts = []
+            for item in top:
+                line = f"- [{item['label']} {item['score']:.2f}] {item['headline']}"
+                if item.get("summary"):
+                    line += f"\n    {item['summary']}"
+                parts.append(line)
+            headline_text = "\n  ".join(parts)
         else:
             headlines = s.get("headlines", [])
             headline_text = (
@@ -193,7 +197,11 @@ def _fetch_headlines_for_tool(
         )
         h = item.get("headline", "no headline")
         src = item.get("source", "unknown")
-        lines.append(f"- [{dt}] {h} ({src})")
+        s = item.get("summary", "")
+        line = f"- [{dt}] {h} ({src})"
+        if s:
+            line += f"\n  {s}"
+        lines.append(line)
     return "\n".join(lines)
 
 

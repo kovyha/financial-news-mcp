@@ -1,8 +1,10 @@
-"""finBERT sentiment scoring for news headlines.
+"""finBERT sentiment scoring for news articles.
 
-Deterministic preprocessing step for the briefing agent. Scores each headline
+Deterministic preprocessing step for the briefing agent. Scores each article
 as positive/negative/neutral using a configurable HuggingFace model (default:
-ProsusAI/finbert). Requires the optional `sentiment` dependency group
+ProsusAI/finbert). When a summary is present it is appended to the headline
+before scoring so finBERT has more signal; the original headline is preserved
+in the output. Requires the optional `sentiment` dependency group
 (transformers + torch).
 
 Gracefully degrades to label='unavailable' when the group is not installed.
@@ -50,26 +52,42 @@ def _get_pipeline(model_name: str):
     return _pipeline
 
 
-def score_headlines(
-    headlines: list[str], model_name: str, valid_labels: frozenset[str]
-) -> list[dict]:
-    """Score each headline with finBERT sentiment.
+def _compose_text(headline: str, summary: str) -> str:
+    """Build the text to score: appends summary to headline when available."""
+    return f"{headline}. {summary}" if summary else headline
 
-    Returns a list of {headline, label, score} dicts where label is one of the
-    values in valid_labels, or 'unavailable' when the transformers dependency
-    group is not installed or the model returns an unexpected label.
+
+def score_headlines(
+    articles: list[dict], model_name: str, valid_labels: frozenset[str]
+) -> list[dict]:
+    """Score each article with finBERT sentiment using headline + summary.
+
+    Each article dict must have a 'headline' key and an optional 'summary' key.
+    When summary is non-empty it is appended to the headline so finBERT has more
+    signal; the original headline is preserved in the output.
+
+    Returns a list of {headline, summary, label, score} dicts where label is one
+    of the values in valid_labels, or 'unavailable' when the transformers
+    dependency group is not installed or the model returns an unexpected label.
     """
-    if not headlines:
+    if not articles:
         return []
+    texts = [_compose_text(a["headline"], a.get("summary") or "") for a in articles]
     pipe = _get_pipeline(model_name)
     if pipe is None:
         return [
-            {"headline": h, "label": "unavailable", "score": 0.0} for h in headlines
+            {
+                "headline": a["headline"],
+                "summary": a.get("summary") or "",
+                "label": "unavailable",
+                "score": 0.0,
+            }
+            for a in articles
         ]
     try:
-        results = pipe(headlines, truncation=True, max_length=512)
+        results = pipe(texts, truncation=True, max_length=512)
         scored = []
-        for h, r in zip(headlines, results):
+        for a, r in zip(articles, results):
             label = r["label"].lower()
             if label not in valid_labels:
                 logger.warning(
@@ -79,11 +97,22 @@ def score_headlines(
                 )
                 label = "unavailable"
             scored.append(
-                {"headline": h, "label": label, "score": round(r["score"], 3)}
+                {
+                    "headline": a["headline"],
+                    "summary": a.get("summary") or "",
+                    "label": label,
+                    "score": round(r["score"], 3),
+                }
             )
         return scored
     except Exception as exc:
         logger.warning("finBERT inference failed: %s", exc)
         return [
-            {"headline": h, "label": "unavailable", "score": 0.0} for h in headlines
+            {
+                "headline": a["headline"],
+                "summary": a.get("summary") or "",
+                "label": "unavailable",
+                "score": 0.0,
+            }
+            for a in articles
         ]

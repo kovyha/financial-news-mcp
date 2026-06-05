@@ -14,7 +14,7 @@ Ask Claude: "Any unusual news activity on HSBC today?"
 
 Claude responds with something like: "Yes, HSBC is showing significant unusual news volume today. Z-score: 3.1. Article count is 3.4x the recent average. Likely driver: [reasoning based on the headlines and sentiment signals]."
 
-Every morning before the US market opens, the daily briefing agent scans the watchlist, scores every headline with finBERT sentiment analysis, and uses Claude to write a concise briefing covering notable tickers, likely drivers, and cross-watchlist themes.
+Every morning before the US market opens, the daily briefing agent scans the watchlist, scores every headline and article summary with finBERT sentiment analysis, and uses Claude to write a concise briefing covering notable tickers, likely drivers, and cross-watchlist themes.
 
 ## Architecture
 
@@ -33,13 +33,13 @@ This boundary is intentional. In any regulated or auditable environment you can 
 | Agent | File | Trigger | What it does |
 |---|---|---|---|
 | MCP server | `server.py` | On-demand (MCP client) | Exposes `get_news_volume` and `health_check` tools |
-| Daily briefing | `briefing.py` | Daily pre-market (CI) | Scores all watchlist headlines with finBERT, filters to high-confidence signals (≥ 0.85), calls Claude to produce a plain-language briefing; emails result |
+| Daily briefing | `briefing.py` | Daily pre-market (CI) | Scores all watchlist headlines and summaries with finBERT, filters to high-confidence signals (≥ 0.85), calls Claude to produce a plain-language briefing; emails result |
 | Daily monitor | `monitor.py` | Daily pre-market (CI) | Fetches watchlist z-scores, exports OTel gauges to Grafana Cloud |
 | Diagnostic | `diagnostic.py` | On-demand | Reads error logs, calls Claude to identify root cause and propose a fix |
 
 ### Sentiment pipeline
 
-All watchlist headlines are scored locally by [finBERT](https://huggingface.co/ProsusAI/finbert) (no API cost). Headlines are then filtered by confidence threshold before being passed to Claude:
+All watchlist headlines and article summaries are scored locally by [finBERT](https://huggingface.co/ProsusAI/finbert) (no API cost). When a Finnhub summary is present it is appended to the headline before scoring so finBERT has more signal; the original headline is preserved in the output. Articles are then filtered by confidence threshold before being passed to Claude:
 
 - Headlines with finBERT confidence ≥ `confidence_threshold` (default: 0.85) are included
 - If fewer than `prompt_headlines_min` (default: 5) clear the bar, the top-scoring headlines fill the gap
