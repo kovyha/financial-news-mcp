@@ -23,6 +23,14 @@ on:
         description: 'finBERT model for sentiment scoring (leave blank for default: ProsusAI/finbert)'
         type: string
         default: ''
+      log_level:
+        description: 'Log level for the run (INFO or DEBUG)'
+        required: false
+        default: 'INFO'
+        type: choice
+        options:
+          - INFO
+          - DEBUG
 
 jobs:
   daily:
@@ -54,6 +62,7 @@ jobs:
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
           GRAFANA_CLOUD_OTLP_ENDPOINT: ${{ secrets.GRAFANA_CLOUD_OTLP_ENDPOINT }}
           GRAFANA_CLOUD_BASIC_AUTH_HEADER: ${{ secrets.GRAFANA_CLOUD_BASIC_AUTH_HEADER }}
+          LOG_LEVEL: ${{ github.event.inputs.log_level || 'INFO' }}
         run: uv run python -m financial_news.monitor
 
       - name: Run briefing agent
@@ -67,6 +76,7 @@ jobs:
           EMAIL_RECIPIENTS: ${{ secrets.EMAIL_RECIPIENTS }}
           SENTIMENT_MODEL_NAME: ${{ github.event.inputs.sentiment_model }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          LOG_LEVEL: ${{ github.event.inputs.log_level || 'INFO' }}
         run: uv run python -m financial_news.briefing
 
       - name: Run diagnostic agent on failure
