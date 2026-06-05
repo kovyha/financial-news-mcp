@@ -9,17 +9,19 @@ You do not commit anything. You do not ask the user for approval. All steps are 
 
 ## Checklist — run in order
 
-### Step 1 — Lint
+### Step 1 — Lint and format check
 ```bash
 uv run ruff check .
+uv run ruff format --check .
 ```
-Note any files/lines with violations.
+Note any files/lines with lint violations, and any files that would be reformatted. Both must be clean before proceeding.
 
-### Step 2 — Auto-fix safe lint issues
+### Step 2 — Auto-fix safe lint and format issues
 ```bash
 uv run ruff check . --fix
+uv run ruff format .
 ```
-Note what was changed, if anything.
+Note what was changed, if anything. If either command modifies files, re-stage those files before continuing.
 
 ### Step 3 — Full test suite
 ```bash
