@@ -46,7 +46,25 @@ The coverage threshold is configured in `pyproject.toml` under `[tool.coverage.r
 ### Step 6 — Documentation currency check
 Run `git diff --cached` and reason about what changed. Ask: does any user-facing or operational document need to reflect this change? Consider: `README.md`, `CLAUDE.md`, `docs/*.md`, `CONTRIBUTING.md`, and inline docstrings on public functions. Flag any that are now stale or missing coverage of the change. If the change is purely internal (refactor, test fix, config tweak) and no doc would mislead a reader, that is OK.
 
-If step 6 results in doc changes that are then staged, **only re-run step 4 (secrets scan) on those staged doc changes** — do not re-run steps 1, 2, 3, or 5 against them.
+If step 6 results in doc changes that are then staged, **only re-run step 4 (secrets scan) on those staged doc changes** — skip all other steps for that re-run.
+
+### Step 7 — Engineering standards review
+Read `docs/engineering-standards.md`, then reason over the staged diff against its rules. Only evaluate what is visible in the diff — do not speculate about code that wasn't changed.
+
+Check each category:
+
+- **REQUIRE** — flag any clear violation as a hard finding (e.g. behavior change with no test, new abstraction with no justification, logic buried in I/O-heavy code that is unit-testable).
+- **AVOID** — flag any clear violation as a soft finding (e.g. duplicated business logic, hidden network call in a test, broad rewrite when a narrow fix was sufficient, new dependency without a clear reason).
+- **PREFER** — flag only egregious violations worth noting (e.g. abbreviated or cryptic names, a test that exercises a single scenario where parameterization is obviously warranted).
+
+Skip rules already enforced mechanically by earlier steps (tests, coverage, docs, secrets).
+
+Rate each finding as:
+- `[REQUIRE]` — must be fixed before committing (contributes to Overall FAIL)
+- `[AVOID]` — should be addressed; document as a finding but do not block
+- `[PREFER]` — informational only; never blocks
+
+If there are no findings, output "No violations found."
 
 ## Output format
 
@@ -72,9 +90,14 @@ Return a single structured report. Do not add prose outside this structure:
 **Step 6 — Docs:** OK | UPDATE NEEDED
 <which doc and what change is needed if UPDATE NEEDED>
 
+**Step 7 — Engineering standards:** PASS | WARN | FAIL
+<findings, each prefixed with [REQUIRE], [AVOID], or [PREFER]; or "No violations found.">
+
 ---
 **Overall: PASS — safe to proceed** | **FAIL — do not commit**
 <summary of what must be fixed before retrying>
 ```
+
+Step 7 contributes to Overall FAIL only if there is at least one `[REQUIRE]` finding. `[AVOID]` and `[PREFER]` findings set the step to WARN but do not block the commit.
 
 If the overall result is FAIL, the coding agent must fix the issues and re-spawn you before asking the user to approve the commit.
