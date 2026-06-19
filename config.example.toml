@@ -32,6 +32,12 @@ level = "INFO"
 # Default: 99.0
 z_score_cap = 99.0
 
+# How many days back to surface headline context for elevated/unusual tickers.
+# Must be <= baseline_days. Controls the narrative window passed to Claude in
+# both interactive (MCP) and briefing modes — no extra API call is made.
+# Default: 7
+# headline_days = 7
+
 [monitor]
 
 # Tickers to watch during the daily monitoring run.
@@ -44,10 +50,6 @@ tickers = ["NVDA", "TSLA", "META", "AMD", "F", "BAC", "GME", "PLUG", "XOM", "UNH
 # snapshot_path = "/tmp/financial_news_snapshot.json"
 
 [briefing]
-
-# How many days back to fetch headlines for elevated/unusual tickers.
-# Default: 7
-headline_days = 7
 
 # Maximum number of headlines to pass to Claude per ticker lookup.
 # Default: 50

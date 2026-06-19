@@ -47,6 +47,18 @@ All watchlist headlines and article summaries are scored locally by [finBERT](ht
 - For `elevated` and `unusual` tickers, high-confidence neutral headlines (score ≥ `confidence_threshold`) are discarded before selection — they are either low-signal or feed noise; weakly-neutral headlines (score < threshold) are kept as borderline signals
 - All thresholds are configurable in `config.toml`
 
+### Stage × mode matrix
+
+| | **Interactive (MCP)** | **GitHub Actions (briefing)** |
+|---|---|---|
+| **Input** | Ticker symbol | Watchlist tickers (snapshot or live fetch) |
+| **Z-score** | Fetches today + 30-day baseline → EWM z-score → `normal` / `elevated` / `unusual` | Same: `compute_volume_stats` per ticker, same 30-day EWM baseline |
+| **finBERT — today** | Scores today's articles → confidence-filtered → `articles` (label + score) | Same: `selected_articles` shown in prompt stats block with labels |
+| **finBERT — 7-day window** | Scores `headline_articles` → neutral-filtered → `headline_context` (label + score + date + source) | Same: `selected_headline_articles` → formatted with labels → pre-loaded into `headlines_cache` |
+| **Reasoning input** | `articles` (today, scored) + `headline_context` (7-day, scored, always provided) | Stats block with `selected_articles` + `headlines_cache` served on Claude's tool call |
+| **Reasoning trigger** | Claude decides immediately on receiving the tool result | Claude calls `get_news_headlines` for elevated/unusual tickers |
+| **Reasoning output** | Claude's response in the conversation | Plain-text briefing, optionally emailed |
+
 ### CI pipeline
 
 The GitHub Actions `monitor.yaml` workflow runs daily at 12:00 UTC (8am ET, pre-market):

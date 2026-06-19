@@ -12,7 +12,7 @@ Run via GitHub Actions (monitor.yaml, briefing step) or manually:
 
 import logging
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 import anthropic
@@ -23,7 +23,7 @@ from financial_news import (
     log_setup,  # noqa: F401
     snapshot,
 )
-from financial_news.analysis import compute_volume_stats, fetch_news
+from financial_news.analysis import compute_volume_stats
 from financial_news.config import load_config
 from financial_news.email_report import send_run_summary
 from financial_news.enrichment import EnrichmentConfig, enrich_stats
@@ -85,38 +85,45 @@ def _format_stats_for_prompt(stats: list[dict]) -> str:
     return "\n\n".join(sections)
 
 
-def _fetch_headlines_for_tool(
-    ticker: str, headline_days: int, max_headlines: int
-) -> str:
-    """Fetch recent headline context for use as a tool result."""
-    today = datetime.now(timezone.utc).date()
-    from_date = today - timedelta(days=headline_days)
-    try:
-        news = fetch_news(ticker, from_date=from_date, to_date=today)
-    except Exception as exc:
-        return f"Error fetching news for {ticker}: {exc}"
-    if not news:
-        return f"No news found for {ticker} in the last {headline_days} days."
+def _format_headline_articles(articles: list[dict], max_headlines: int) -> str:
+    """Format pre-fetched headline articles as a readable string for tool results."""
+    if not articles:
+        return "No headline context available."
     lines = []
-    for item in news[:max_headlines]:
-        dt = (
-            datetime.fromtimestamp(item["datetime"], tz=timezone.utc).date().isoformat()
+    for item in articles[:max_headlines]:
+        label = item.get("label", "")
+        score = item.get("score")
+        sentiment = (
+            f" [{label} {score:.2f}]"
+            if label and label != "unavailable" and score is not None
+            else ""
         )
-        h = item.get("headline", "no headline")
-        src = item.get("source", "unknown")
+        headline = item.get("headline", "no headline")
+        source = item.get("source", "unknown")
+        line = f"- [{item['date']}]{sentiment} {headline} ({source})"
         s = item.get("summary", "")
-        line = f"- [{dt}] {h} ({src})"
         if s:
             line += f"\n  {s}"
         lines.append(line)
     return "\n".join(lines)
 
 
+def _build_headlines_cache(stats: list[dict], max_headlines: int) -> dict[str, str]:
+    """Build a {ticker: formatted_headlines} dict from pre-fetched enriched stats."""
+    return {
+        s["ticker"]: _format_headline_articles(
+            s.get("selected_headline_articles", []), max_headlines
+        )
+        for s in stats
+        if "error" not in s
+    }
+
+
 def _run_briefing(
     stats: list[dict],
     baseline_days: int,
     headline_days: int,
-    max_headlines: int,
+    headlines_cache: dict[str, str],
 ) -> str:
     """Call Claude to produce a daily market briefing over the collected stats."""
     client = anthropic.Anthropic()
@@ -124,7 +131,7 @@ def _run_briefing(
         {
             "name": "get_news_headlines",
             "description": (
-                f"Fetch the last {headline_days} days of news headlines for a stock"
+                f"Get the last {headline_days} days of news headlines for a stock"
                 " ticker to understand what is driving unusual or elevated activity."
             ),
             "input_schema": {
@@ -147,7 +154,7 @@ def _run_briefing(
         f"Watchlist statistics (z-score vs {baseline_days}-day EWM baseline,"
         f" today's headlines included):\n\n{stats_block}\n\n"
         "For any ticker classified as 'elevated' or 'unusual', use"
-        f" get_news_headlines to fetch broader {headline_days}-day headline context"
+        f" get_news_headlines to retrieve broader {headline_days}-day headline context"
         " and identify the likely driver. Then write a concise briefing covering:\n"
         "1. Notable tickers with elevated or unusual activity and the likely driver\n"
         "2. Any cross-watchlist themes or patterns\n"
@@ -174,7 +181,7 @@ def _run_briefing(
             if block.type != "tool_use":
                 continue
             ticker = block.input.get("ticker", "")
-            content = _fetch_headlines_for_tool(ticker, headline_days, max_headlines)
+            content = headlines_cache.get(ticker, "No headline context available.")
             tool_results.append(
                 {"type": "tool_result", "tool_use_id": block.id, "content": content}
             )
@@ -196,11 +203,12 @@ def main() -> int:
     )
     enriched = [enrich_stats(s, enrich_cfg) for s in stats]
 
+    headlines_cache = _build_headlines_cache(enriched, cfg.briefing.max_headlines)
     briefing_text = _run_briefing(
         enriched,
         cfg.analysis.baseline_days,
-        cfg.briefing.headline_days,
-        cfg.briefing.max_headlines,
+        cfg.analysis.headline_days,
+        headlines_cache,
     )
     print()
     print("=" * 60)

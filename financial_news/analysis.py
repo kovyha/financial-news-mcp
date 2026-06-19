@@ -25,6 +25,7 @@ _cfg = load_config()
 THRESHOLD_ELEVATED: float = _cfg.analysis.threshold_elevated
 THRESHOLD_UNUSUAL: float = _cfg.analysis.threshold_unusual
 BASELINE_DAYS: int = _cfg.analysis.baseline_days
+HEADLINE_DAYS: int = _cfg.analysis.headline_days
 Z_SCORE_CAP: float = _cfg.analysis.z_score_cap
 
 # Registry of numeric outputs from compute_volume_stats that should be exported
@@ -198,12 +199,13 @@ def compute_volume_stats(symbol: str) -> dict:
     """Fetch news and compute volume statistics for a symbol.
 
     Returns a dict with keys: recent_count, mean, std, z_score, classification,
-    headlines, baseline_counts.
+    headlines, baseline_counts, headline_articles.
     """
     tz = _exchange_tz(symbol)
     today = datetime.now(tz).date()
     yesterday = today - timedelta(days=1)
     baseline_start = today - timedelta(days=BASELINE_DAYS)
+    headline_start = today - timedelta(days=HEADLINE_DAYS)
 
     # Fetch with to_date+1 so Finnhub includes all of today regardless of how
     # it interprets the upper bound of a same-day range.
@@ -251,6 +253,19 @@ def compute_volume_stats(symbol: str) -> dict:
         {"headline": a["headline"], "summary": a.get("summary") or ""} for a in recent
     ]
 
+    # Headline context: slice of already-fetched data covering the last
+    # HEADLINE_DAYS days (today + tail of baseline window). No extra API call.
+    headline_articles = [
+        {
+            "date": datetime.fromtimestamp(a["datetime"], tz=tz).date().isoformat(),
+            "headline": a.get("headline", ""),
+            "summary": a.get("summary", ""),
+            "source": a.get("source", ""),
+        }
+        for a in [*recent, *baseline_articles]
+        if datetime.fromtimestamp(a["datetime"], tz=tz).date() >= headline_start
+    ]
+
     articles_with_summary = sum(1 for a in recent_articles if a["summary"])
     logger.info(
         "compute_volume_stats symbol=%s tz=%s recent_count=%d ewm_mean=%.2f "
@@ -282,4 +297,5 @@ def compute_volume_stats(symbol: str) -> dict:
         "articles": articles,
         "recent_articles": recent_articles,
         "baseline_counts": baseline_counts,
+        "headline_articles": headline_articles,
     }

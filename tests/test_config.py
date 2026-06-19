@@ -87,6 +87,7 @@ def test_missing_logging_section_uses_defaults(tmp_path):
 def test_analysis_defaults_when_no_file(tmp_path):
     cfg = load_config(path=tmp_path / "config.toml")
     assert cfg.analysis.baseline_days == 30
+    assert cfg.analysis.headline_days == 7
     assert cfg.analysis.threshold_elevated == 2.0
     assert cfg.analysis.threshold_unusual == 3.0
     assert cfg.analysis.z_score_cap == 99.0
@@ -232,6 +233,27 @@ def test_analysis_baseline_days_negative_raises(tmp_path):
         load_config(path=config_file)
 
 
+def test_analysis_headline_days_loaded_from_file(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[analysis]\nbaseline_days = 30\nheadline_days = 14\n")
+    cfg = load_config(path=config_file)
+    assert cfg.analysis.headline_days == 14
+
+
+def test_analysis_headline_days_zero_raises(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[analysis]\nheadline_days = 0\n")
+    with pytest.raises(ValueError, match="headline_days must be > 0"):
+        load_config(path=config_file)
+
+
+def test_analysis_headline_days_exceeds_baseline_raises(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[analysis]\nbaseline_days = 10\nheadline_days = 14\n")
+    with pytest.raises(ValueError, match="headline_days.*must be.*<=.*baseline_days"):
+        load_config(path=config_file)
+
+
 def test_analysis_equal_thresholds_raises(tmp_path):
     config_file = tmp_path / "config.toml"
     config_file.write_text(
@@ -248,22 +270,20 @@ def test_analysis_equal_thresholds_raises(tmp_path):
 
 def test_briefing_defaults_when_no_file(tmp_path):
     cfg = load_config(path=tmp_path / "config.toml")
-    assert cfg.briefing.headline_days == 7
     assert cfg.briefing.max_headlines == 50
 
 
 def test_briefing_values_loaded_from_file(tmp_path):
     config_file = tmp_path / "config.toml"
-    config_file.write_text("[briefing]\nheadline_days = 14\nmax_headlines = 10\n")
+    config_file.write_text("[briefing]\nmax_headlines = 10\n")
     cfg = load_config(path=config_file)
-    assert cfg.briefing.headline_days == 14
     assert cfg.briefing.max_headlines == 10
 
 
-def test_briefing_headline_days_zero_raises(tmp_path):
+def test_briefing_headline_days_is_unrecognised_key(tmp_path):
     config_file = tmp_path / "config.toml"
-    config_file.write_text("[briefing]\nheadline_days = 0\n")
-    with pytest.raises(ValueError, match="headline_days must be > 0"):
+    config_file.write_text("[briefing]\nheadline_days = 7\n")
+    with pytest.raises(ValueError, match="unrecognised keys"):
         load_config(path=config_file)
 
 

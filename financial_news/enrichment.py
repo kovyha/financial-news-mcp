@@ -62,6 +62,11 @@ def enrich_stats(stats: dict, cfg: EnrichmentConfig) -> dict:
     strings from older snapshots), applies confidence-threshold filtering with
     neutral-article discarding for elevated/unusual tickers, and stores both the
     full scored list and the selected subset back into the returned stats dict.
+
+    Also scores the multi-day headline_articles window (if present) using the same
+    neutral-filtering logic, producing selected_headline_articles for LLM context.
+    date and source fields are preserved via zip-join since score_headlines only
+    outputs headline/summary/label/score.
     """
     if "error" in stats:
         return stats
@@ -75,7 +80,12 @@ def enrich_stats(stats: dict, cfg: EnrichmentConfig) -> dict:
 
     if not source:
         logger.info("ticker=%s has no articles to score", ticker)
-        return {**stats, "headline_sentiment": [], "selected_articles": []}
+        return {
+            **stats,
+            "headline_sentiment": [],
+            "selected_articles": [],
+            "selected_headline_articles": [],
+        }
 
     logger.info("ticker=%s articles_to_score=%d", ticker, len(source))
     all_scored = sentiment.score_headlines(source, cfg.model_name, cfg.valid_labels)
@@ -103,7 +113,36 @@ def enrich_stats(stats: dict, cfg: EnrichmentConfig) -> dict:
             item["headline"],
         )
 
-    return {**stats, "headline_sentiment": all_scored, "selected_articles": selected}
+    # Score the multi-day headline window with the same neutral-filtering logic.
+    # score_headlines drops extra keys (date, source), so zip-join them back.
+    headline_articles = stats.get("headline_articles") or []
+    if headline_articles:
+        logger.info(
+            "ticker=%s headline_window_to_score=%d", ticker, len(headline_articles)
+        )
+        raw_scores = sentiment.score_headlines(
+            headline_articles, cfg.model_name, cfg.valid_labels
+        )
+        headline_scored = [
+            {**orig, "label": s["label"], "score": s["score"]}
+            for orig, s in zip(headline_articles, raw_scores)
+        ]
+        selected_headline_articles = select_articles(
+            headline_scored,
+            stats["classification"],
+            cfg.confidence_threshold,
+            cfg.min_articles,
+            cfg.max_articles,
+        )
+    else:
+        selected_headline_articles = []
+
+    return {
+        **stats,
+        "headline_sentiment": all_scored,
+        "selected_articles": selected,
+        "selected_headline_articles": selected_headline_articles,
+    }
 
 
 def enrich_ticker(symbol: str, cfg: EnrichmentConfig) -> dict:

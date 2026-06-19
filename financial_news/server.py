@@ -70,7 +70,8 @@ def get_news_volume(symbol: str) -> dict:
       - Classifies the signal as normal / elevated / unusual against fixed thresholds.
       - Enriches articles with finBERT sentiment and applies confidence-threshold
         selection (with neutral-article filtering for elevated/unusual tickers).
-      - Returns structured data: symbol, counts, statistics, classification, articles.
+      - Returns structured data: symbol, counts, statistics, classification, articles,
+        and headline_context (last N days of articles for narrative context).
 
     LLM reasoning layer (the caller — Claude via MCP):
       - Receives the structured output above as tool result context.
@@ -105,6 +106,7 @@ def get_news_volume(symbol: str) -> dict:
             }
             for item in enriched.get("selected_articles", [])
         ],
+        "headline_context": enriched.get("selected_headline_articles", []),
     }
 
 

@@ -26,6 +26,7 @@ class LoggingConfig:
 @dataclass
 class AnalysisConfig:
     baseline_days: int = 30
+    headline_days: int = 7
     threshold_elevated: float = 2.0
     threshold_unusual: float = 3.0
     z_score_cap: float = 99.0
@@ -62,7 +63,6 @@ class SentimentConfig:
 
 @dataclass
 class BriefingConfig:
-    headline_days: int = 7
     max_headlines: int = 50
     confidence_threshold: float = 0.85
     prompt_headlines_min: int = 5
@@ -169,6 +169,9 @@ def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
     baseline_days = int(
         analysis_data.get("baseline_days", AnalysisConfig.baseline_days)
     )
+    headline_days = int(
+        analysis_data.get("headline_days", AnalysisConfig.headline_days)
+    )
     threshold_elevated = float(
         analysis_data.get("threshold_elevated", AnalysisConfig.threshold_elevated)
     )
@@ -180,6 +183,15 @@ def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
     if baseline_days <= 0:
         raise ValueError(
             f"config.toml [analysis] baseline_days must be > 0, got: {baseline_days}"
+        )
+    if headline_days <= 0:
+        raise ValueError(
+            f"config.toml [analysis] headline_days must be > 0, got: {headline_days}"
+        )
+    if headline_days > baseline_days:
+        raise ValueError(
+            f"config.toml [analysis] headline_days ({headline_days}) must be"
+            f" <= baseline_days ({baseline_days})"
         )
     if threshold_elevated >= threshold_unusual:
         raise ValueError(
@@ -213,9 +225,6 @@ def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
             f"config.toml [briefing] contains unrecognised keys: {sorted(unknown)}"
         )
 
-    headline_days = int(
-        briefing_data.get("headline_days", BriefingConfig.headline_days)
-    )
     max_headlines = int(
         briefing_data.get("max_headlines", BriefingConfig.max_headlines)
     )
@@ -230,10 +239,6 @@ def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
         briefing_data.get("prompt_headlines_max", BriefingConfig.prompt_headlines_max)
     )
 
-    if headline_days <= 0:
-        raise ValueError(
-            f"config.toml [briefing] headline_days must be > 0, got: {headline_days}"
-        )
     if max_headlines <= 0:
         raise ValueError(
             f"config.toml [briefing] max_headlines must be > 0, got: {max_headlines}"
@@ -313,13 +318,13 @@ def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
         ),
         analysis=AnalysisConfig(
             baseline_days=baseline_days,
+            headline_days=headline_days,
             threshold_elevated=threshold_elevated,
             threshold_unusual=threshold_unusual,
             z_score_cap=z_score_cap,
         ),
         monitor=MonitorConfig(tickers=tickers, snapshot_path=snapshot_path),
         briefing=BriefingConfig(
-            headline_days=headline_days,
             max_headlines=max_headlines,
             confidence_threshold=confidence_threshold,
             prompt_headlines_min=prompt_headlines_min,

@@ -116,6 +116,7 @@ def test_enrich_stats_zero_news_skips_scoring(monkeypatch):
     result = enrichment.enrich_stats(s, _CFG)
     assert result["headline_sentiment"] == []
     assert result["selected_articles"] == []
+    assert result["selected_headline_articles"] == []
     assert not called
 
 
@@ -161,6 +162,91 @@ def test_enrich_stats_preserves_original_fields(monkeypatch):
     assert result["z_score"] == s["z_score"]
     assert result["classification"] == s["classification"]
     assert result["recent_count"] == s["recent_count"]
+
+
+def test_enrich_stats_scores_headline_articles(monkeypatch):
+    """headline_articles are scored and returned as selected_headline_articles."""
+    _mock_score(monkeypatch, label="positive", score=0.92)
+    s = {
+        **_base_stats("unusual"),
+        "headline_articles": [
+            {
+                "date": "2024-06-01",
+                "headline": "NVDA up 10%",
+                "summary": "",
+                "source": "Reuters",
+            },
+            {
+                "date": "2024-06-02",
+                "headline": "GPU demand rises",
+                "summary": "",
+                "source": "Bloomberg",
+            },
+        ],
+    }
+    result = enrichment.enrich_stats(s, _CFG)
+    assert "selected_headline_articles" in result
+    assert len(result["selected_headline_articles"]) > 0
+    # date and source must be preserved via zip-join
+    assert result["selected_headline_articles"][0]["date"] == "2024-06-01"
+    assert result["selected_headline_articles"][0]["source"] == "Reuters"
+    assert result["selected_headline_articles"][0]["label"] == "positive"
+
+
+def test_enrich_stats_headline_articles_neutral_filtering(monkeypatch):
+    """High-confidence neutral headline_articles are dropped for elevated/unusual."""
+    call_count = [0]
+
+    def scored_with_neutrals(articles, *_):
+        call_count[0] += 1
+        return [
+            {
+                "headline": a["headline"],
+                "summary": "",
+                "label": "neutral",
+                "score": 0.95,
+            }
+            if a["headline"] == "Quiet day"
+            else {
+                "headline": a["headline"],
+                "summary": "",
+                "label": "negative",
+                "score": 0.91,
+            }
+            for a in articles
+        ]
+
+    monkeypatch.setattr(sentiment, "score_headlines", scored_with_neutrals)
+    s = {
+        **_base_stats("unusual"),
+        "headline_articles": [
+            {
+                "date": "2024-06-01",
+                "headline": "Quiet day",
+                "summary": "",
+                "source": "AP",
+            },
+            {
+                "date": "2024-06-02",
+                "headline": "Earnings miss",
+                "summary": "",
+                "source": "Reuters",
+            },
+        ],
+    }
+    result = enrichment.enrich_stats(s, _CFG)
+    headline_texts = [a["headline"] for a in result["selected_headline_articles"]]
+    assert "Earnings miss" in headline_texts
+    assert "Quiet day" not in headline_texts
+    # score_headlines called twice: once for recent_articles, once for headline_articles
+    assert call_count[0] == 2
+
+
+def test_enrich_stats_no_headline_articles_returns_empty(monkeypatch):
+    """selected_headline_articles is [] when headline_articles is absent."""
+    _mock_score(monkeypatch)
+    result = enrichment.enrich_stats(_base_stats(), _CFG)
+    assert result["selected_headline_articles"] == []
 
 
 # ── enrich_ticker ─────────────────────────────────────────────────────────────

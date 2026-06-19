@@ -5,7 +5,11 @@ from unittest.mock import MagicMock, patch
 import anthropic
 
 from financial_news import briefing
-from financial_news.config import AnalysisConfig, BriefingConfig, EmailConfig
+from financial_news.config import (  # noqa: F401
+    AnalysisConfig,
+    BriefingConfig,
+    EmailConfig,
+)
 
 # ── Mock helpers ──────────────────────────────────────────────────────────────
 
@@ -47,7 +51,7 @@ def _sample_stats(ticker: str = "NVDA", classification: str = "unusual") -> dict
 
 
 _BASELINE = AnalysisConfig.baseline_days
-_DAYS = BriefingConfig.headline_days
+_DAYS = AnalysisConfig.headline_days
 _MAX = BriefingConfig.max_headlines
 
 # ── _collect_stats ────────────────────────────────────────────────────────────
@@ -148,42 +152,72 @@ def test_format_stats_error_entry():
     assert "ERROR" in text
 
 
-# ── _fetch_headlines_for_tool ─────────────────────────────────────────────────
+# ── _format_headline_articles ─────────────────────────────────────────────────
 
 
-def test_fetch_headlines_success(monkeypatch):
-    import time
-
-    mock_news = [
+def test_format_headline_articles_success():
+    articles = [
         {
+            "date": "2024-01-15",
             "headline": "Big news",
             "summary": "Details on the acquisition.",
             "source": "Reuters",
-            "datetime": int(time.time()),
+            "label": "positive",
+            "score": 0.92,
         }
     ]
-    monkeypatch.setattr(
-        "financial_news.briefing.fetch_news", lambda *a, **kw: mock_news
-    )
-    result = briefing._fetch_headlines_for_tool("NVDA", _DAYS, _MAX)
+    result = briefing._format_headline_articles(articles, _MAX)
     assert "Big news" in result
     assert "Reuters" in result
     assert "Details on the acquisition." in result
+    assert "2024-01-15" in result
+    assert "[positive 0.92]" in result
 
 
-def test_fetch_headlines_empty(monkeypatch):
-    monkeypatch.setattr("financial_news.briefing.fetch_news", lambda *a, **kw: [])
-    result = briefing._fetch_headlines_for_tool("NVDA", _DAYS, _MAX)
-    assert "No news found" in result
+def test_format_headline_articles_omits_unavailable_label():
+    articles = [
+        {
+            "date": "2024-01-15",
+            "headline": "Big news",
+            "summary": "",
+            "source": "Reuters",
+            "label": "unavailable",
+            "score": 0.0,
+        }
+    ]
+    result = briefing._format_headline_articles(articles, _MAX)
+    assert "unavailable" not in result
+    assert "Big news" in result
 
 
-def test_fetch_headlines_exception(monkeypatch):
-    monkeypatch.setattr(
-        "financial_news.briefing.fetch_news",
-        lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("timeout")),
-    )
-    result = briefing._fetch_headlines_for_tool("NVDA", _DAYS, _MAX)
-    assert "Error fetching news" in result
+def test_format_headline_articles_omits_label_when_absent():
+    articles = [
+        {"date": "2024-01-15", "headline": "Big news", "summary": "", "source": "AP"}
+    ]
+    result = briefing._format_headline_articles(articles, _MAX)
+    assert "[" not in result.split("]", 1)[1] if "]" in result else True
+    assert "Big news" in result
+
+
+def test_format_headline_articles_empty():
+    result = briefing._format_headline_articles([], _MAX)
+    assert "No headline context available." in result
+
+
+def test_format_headline_articles_truncates_to_max():
+    articles = [
+        {
+            "date": "2024-01-15",
+            "headline": f"Headline {i}",
+            "summary": "",
+            "source": "x",
+        }
+        for i in range(10)
+    ]
+    result = briefing._format_headline_articles(articles, max_headlines=3)
+    assert "Headline 0" in result
+    assert "Headline 2" in result
+    assert "Headline 3" not in result
 
 
 # ── _run_briefing ─────────────────────────────────────────────────────────────
@@ -196,7 +230,7 @@ def test_run_briefing_end_turn(monkeypatch):
     monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
 
     result = briefing._run_briefing(
-        [_sample_stats("NVDA", "normal")], _BASELINE, _DAYS, _MAX
+        [_sample_stats("NVDA", "normal")], _BASELINE, _DAYS, {}
     )
     assert "Watchlist is quiet today." in result
 
@@ -212,7 +246,7 @@ def test_run_briefing_prompt_uses_configured_baseline_days(monkeypatch):
         [_sample_stats()],
         baseline_days=60,
         headline_days=14,
-        max_headlines=_MAX,
+        headlines_cache={},
     )
 
     call_kwargs = mock_client.messages.create.call_args[1]
@@ -227,21 +261,15 @@ def test_run_briefing_unexpected_stop_reason(monkeypatch):
     mock_client.messages.create.return_value = resp
     monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
 
-    result = briefing._run_briefing([_sample_stats()], _BASELINE, _DAYS, _MAX)
+    result = briefing._run_briefing([_sample_stats()], _BASELINE, _DAYS, {})
     assert "max_tokens" in result
 
 
 def test_run_briefing_tool_use_loop(monkeypatch):
     """Claude calls get_news_headlines then returns end_turn."""
-    import time
-
-    ts = int(time.time())
-    mock_news = [
-        {"headline": "NVIDIA H200 launch", "source": "Reuters", "datetime": ts}
-    ]
-    monkeypatch.setattr(
-        "financial_news.briefing.fetch_news", lambda *a, **kw: mock_news
-    )
+    headlines_cache = {
+        "NVDA": "- [2024-06-01] NVIDIA H200 launch (Reuters)\n  New GPU announced."
+    }
 
     tool_resp = _response(
         "tool_use",
@@ -256,7 +284,7 @@ def test_run_briefing_tool_use_loop(monkeypatch):
     monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
 
     result = briefing._run_briefing(
-        [_sample_stats("NVDA", "unusual")], _BASELINE, _DAYS, _MAX
+        [_sample_stats("NVDA", "unusual")], _BASELINE, _DAYS, headlines_cache
     )
     assert "NVDA" in result
 
