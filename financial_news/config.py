@@ -43,6 +43,7 @@ _DEFAULT_MONITOR_TICKERS: list[str] = [
     "PLUG",
     "XOM",
     "UNH",
+    "SPCX",
 ]
 
 
