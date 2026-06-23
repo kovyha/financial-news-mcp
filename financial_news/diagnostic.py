@@ -25,6 +25,19 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 logger = logging.getLogger(__name__)
 
+_SYSTEM_PROMPT = (
+    "You are diagnosing errors in financial-news-mcp, an MCP server that"
+    " fetches Finnhub news and computes 30-day EWM z-scores to detect"
+    " unusual stock ticker activity.\n\n"
+    "Key files: financial_news/analysis.py (z-score logic),"
+    " financial_news/server.py (MCP tools),"
+    " financial_news/config.py (thresholds),"
+    " financial_news/monitor.py (daily watchlist runner).\n\n"
+    "Read the relevant source files, identify the root cause,"
+    " and propose a specific fix. If changes require human review"
+    " before merging, say so."
+)
+
 
 def _analyze_with_llm(error_lines: list[str], project_root: Path) -> str:
     """Call Claude to reason about error lines, reading source files as needed."""
@@ -49,28 +62,24 @@ def _analyze_with_llm(error_lines: list[str], project_root: Path) -> str:
                 },
                 "required": ["path"],
             },
+            "cache_control": {"type": "ephemeral"},
         }
     ]
     error_text = "\n".join(error_lines)
-    prompt = (
-        "You are diagnosing errors in financial-news-mcp, an MCP server that"
-        " fetches Finnhub news and computes 30-day EWM z-scores to detect"
-        " unusual stock ticker activity.\n\n"
-        "Key files: financial_news/analysis.py (z-score logic),"
-        " financial_news/server.py (MCP tools),"
-        " financial_news/config.py (thresholds),"
-        " financial_news/monitor.py (daily watchlist runner).\n\n"
-        f"Error log entries from today:\n\n{error_text}\n\n"
-        "Read the relevant source files, identify the root cause,"
-        " and propose a specific fix. If changes require human review"
-        " before merging, say so."
-    )
+    prompt = f"Error log entries from today:\n\n{error_text}"
     messages = [{"role": "user", "content": prompt}]
     while True:
         response = client.messages.create(
             model="claude-opus-4-7",
             max_tokens=8192,
             thinking={"type": "adaptive"},
+            system=[
+                {
+                    "type": "text",
+                    "text": _SYSTEM_PROMPT,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
             tools=tools,
             messages=messages,
         )

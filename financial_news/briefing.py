@@ -33,6 +33,17 @@ logger = logging.getLogger(__name__)
 _MODEL = "claude-opus-4-7"
 _MAX_TOKENS = 4096
 _THINKING = {"type": "adaptive"}
+_SYSTEM_PROMPT = (
+    "You are producing a daily news-volume briefing for a financial watchlist.\n\n"
+    "For any ticker classified as 'elevated' or 'unusual', use get_news_headlines"
+    " to retrieve broader headline context and identify the likely driver."
+    " Then write a concise briefing covering:\n"
+    "1. Notable tickers with elevated or unusual activity and the likely driver\n"
+    "2. Any cross-watchlist themes or patterns\n"
+    "3. A brief note on quiet tickers\n\n"
+    "If the entire watchlist is normal, say so clearly."
+    " Keep the briefing factual and suitable for a daily internal review."
+)
 
 
 def _collect_stats(tickers: list[str]) -> list[dict]:
@@ -144,23 +155,16 @@ def _run_briefing(
                 },
                 "required": ["ticker"],
             },
+            "cache_control": {"type": "ephemeral"},
         }
     ]
     stats_block = _format_stats_for_prompt(stats)
     prompt = (
-        f"Today is {datetime.now(timezone.utc).date().isoformat()} (UTC)."
-        " You are producing a daily news-volume "
-        "briefing for a financial watchlist.\n\n"
+        f"Today is {datetime.now(timezone.utc).date().isoformat()} (UTC).\n\n"
         f"Watchlist statistics (z-score vs {baseline_days}-day EWM baseline,"
         f" today's headlines included):\n\n{stats_block}\n\n"
-        "For any ticker classified as 'elevated' or 'unusual', use"
-        f" get_news_headlines to retrieve broader {headline_days}-day headline context"
-        " and identify the likely driver. Then write a concise briefing covering:\n"
-        "1. Notable tickers with elevated or unusual activity and the likely driver\n"
-        "2. Any cross-watchlist themes or patterns\n"
-        "3. A brief note on quiet tickers\n\n"
-        "If the entire watchlist is normal, say so clearly. "
-        "Keep the briefing factual and suitable for a daily internal review."
+        f"Retrieve {headline_days}-day headline context for any elevated or unusual"
+        " tickers before writing the briefing."
     )
     messages = [{"role": "user", "content": prompt}]
     while True:
@@ -168,6 +172,13 @@ def _run_briefing(
             model=_MODEL,
             max_tokens=_MAX_TOKENS,
             thinking=_THINKING,
+            system=[
+                {
+                    "type": "text",
+                    "text": _SYSTEM_PROMPT,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
             tools=tools,
             messages=messages,
         )
