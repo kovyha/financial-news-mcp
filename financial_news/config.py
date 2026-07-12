@@ -30,6 +30,10 @@ class AnalysisConfig:
     threshold_elevated: float = 2.0
     threshold_unusual: float = 3.0
     z_score_cap: float = 99.0
+    # 3.5 / 0.6745: equivalent to the Iglewicz & Hoaglin modified z-score
+    # outlier threshold (|M| > 3.5, where M = 0.6745*(x-median)/MAD),
+    # expressed directly in raw MAD units instead of 0.6745-scaled units.
+    winsorize_k: float = 5.19
 
 
 _DEFAULT_MONITOR_TICKERS: list[str] = [
@@ -180,6 +184,7 @@ def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
         analysis_data.get("threshold_unusual", AnalysisConfig.threshold_unusual)
     )
     z_score_cap = float(analysis_data.get("z_score_cap", AnalysisConfig.z_score_cap))
+    winsorize_k = float(analysis_data.get("winsorize_k", AnalysisConfig.winsorize_k))
 
     if baseline_days <= 0:
         raise ValueError(
@@ -202,6 +207,10 @@ def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
     if z_score_cap <= 0:
         raise ValueError(
             f"config.toml [analysis] z_score_cap must be > 0, got: {z_score_cap}"
+        )
+    if winsorize_k <= 0:
+        raise ValueError(
+            f"config.toml [analysis] winsorize_k must be > 0, got: {winsorize_k}"
         )
 
     monitor_data = data.get("monitor", {})
@@ -323,6 +332,7 @@ def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
             threshold_elevated=threshold_elevated,
             threshold_unusual=threshold_unusual,
             z_score_cap=z_score_cap,
+            winsorize_k=winsorize_k,
         ),
         monitor=MonitorConfig(tickers=tickers, snapshot_path=snapshot_path),
         briefing=BriefingConfig(

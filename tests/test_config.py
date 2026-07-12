@@ -91,6 +91,7 @@ def test_analysis_defaults_when_no_file(tmp_path):
     assert cfg.analysis.threshold_elevated == 2.0
     assert cfg.analysis.threshold_unusual == 3.0
     assert cfg.analysis.z_score_cap == 99.0
+    assert cfg.analysis.winsorize_k == 5.19
 
 
 def test_analysis_values_loaded_from_file(tmp_path):
@@ -127,6 +128,27 @@ def test_analysis_z_score_cap_zero_raises(tmp_path):
     config_file = tmp_path / "config.toml"
     config_file.write_text("[analysis]\nz_score_cap = 0.0\n")
     with pytest.raises(ValueError, match="z_score_cap must be > 0"):
+        load_config(path=config_file)
+
+
+def test_analysis_winsorize_k_loaded_from_file(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[analysis]\nwinsorize_k = 5.0\n")
+    cfg = load_config(path=config_file)
+    assert cfg.analysis.winsorize_k == 5.0
+
+
+def test_analysis_winsorize_k_zero_raises(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[analysis]\nwinsorize_k = 0.0\n")
+    with pytest.raises(ValueError, match="winsorize_k must be > 0"):
+        load_config(path=config_file)
+
+
+def test_analysis_winsorize_k_negative_raises(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[analysis]\nwinsorize_k = -1.0\n")
+    with pytest.raises(ValueError, match="winsorize_k must be > 0"):
         load_config(path=config_file)
 
 

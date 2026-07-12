@@ -27,6 +27,7 @@ THRESHOLD_UNUSUAL: float = _cfg.analysis.threshold_unusual
 BASELINE_DAYS: int = _cfg.analysis.baseline_days
 HEADLINE_DAYS: int = _cfg.analysis.headline_days
 Z_SCORE_CAP: float = _cfg.analysis.z_score_cap
+WINSORIZE_K: float = _cfg.analysis.winsorize_k
 
 # Registry of numeric outputs from compute_volume_stats that should be exported
 # as OTel gauges. Each entry is (stats_key, otel_metric_name, description).
@@ -46,7 +47,7 @@ GAUGE_SPECS: list[tuple[str, str, str]] = [
     (
         "mean",
         "financial_news.ewm_mean",
-        "30-day EWM baseline mean article count",
+        "30-day EWM baseline mean article count (upper-tail winsorized)",
     ),
 ]
 
@@ -136,6 +137,26 @@ def _ewma_mean_std(values: list[float], span: int) -> tuple[float, float]:
     mean = float(ewm.mean().iloc[-1])
     std = ewm.std().iloc[-1]
     return mean, 0.0 if pd.isna(std) else float(std)
+
+
+def _winsorize_upper(values: list[float], k: float) -> list[float]:
+    """Cap upper-tail outliers in *values* at median + k * MAD.
+
+    One-sided: baseline article counts are floored at 0 and right-skewed, so
+    only high outlier days (e.g. an old spike headline) need capping before
+    they inflate the EWM std. If MAD is 0 (no dispersion around the median —
+    common with sparse, mostly-zero baselines), values are returned unchanged
+    rather than collapsing every above-median point down to the median.
+    """
+    if not values:
+        return values
+    series = pd.Series(values, dtype=float)
+    median = series.median()
+    mad = (series - median).abs().median()
+    if mad == 0:
+        return values
+    cap = median + k * mad
+    return series.clip(upper=cap).tolist()
 
 
 def fetch_news(symbol: str, from_date: date, to_date: date) -> list:
@@ -231,7 +252,8 @@ def compute_volume_stats(symbol: str) -> dict:
         baseline_counts.append(float(article_date_counts.get(current, 0)))
         current += timedelta(days=1)
 
-    mean, std = _ewma_mean_std(baseline_counts, span=BASELINE_DAYS)
+    winsorized_counts = _winsorize_upper(baseline_counts, k=WINSORIZE_K)
+    mean, std = _ewma_mean_std(winsorized_counts, span=BASELINE_DAYS)
 
     recent_count = len(recent)
     z_score = min(calculate_z_score(recent_count, mean, std), Z_SCORE_CAP)
@@ -266,10 +288,14 @@ def compute_volume_stats(symbol: str) -> dict:
         if datetime.fromtimestamp(a["datetime"], tz=tz).date() >= headline_start
     ]
 
+    capped_days = sum(
+        1 for raw, capped in zip(baseline_counts, winsorized_counts) if capped < raw
+    )
     articles_with_summary = sum(1 for a in recent_articles if a["summary"])
     logger.info(
         "compute_volume_stats symbol=%s tz=%s recent_count=%d ewm_mean=%.2f "
-        "ewm_std=%.2f z_score=%.2f classification=%s articles_with_summary=%d/%d",
+        "ewm_std=%.2f z_score=%.2f classification=%s capped_days=%d "
+        "articles_with_summary=%d/%d",
         symbol,
         tz.key,
         recent_count,
@@ -277,6 +303,7 @@ def compute_volume_stats(symbol: str) -> dict:
         std,
         z_score,
         classification,
+        capped_days,
         articles_with_summary,
         recent_count,
     )

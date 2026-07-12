@@ -38,6 +38,17 @@ z_score_cap = 99.0
 # Default: 7
 # headline_days = 7
 
+# Winsorization multiplier applied to the 30-day baseline before computing the
+# EWM mean/std. Baseline days above median + winsorize_k * MAD are capped to
+# that value, so a single old spike day (e.g. stale earnings/M&A headlines)
+# can't inflate the baseline std and mask a genuinely unusual day. One-sided
+# (upper tail only) since article counts floor at 0. Must be > 0.
+# Default of 5.19 (= 3.5 / 0.6745) is equivalent to the Iglewicz & Hoaglin
+# modified z-score outlier threshold (|M| > 3.5), expressed in raw MAD units
+# rather than 0.6745-scaled units.
+# Default: 5.19
+# winsorize_k = 5.19
+
 [monitor]
 
 # Tickers to watch during the daily monitoring run.

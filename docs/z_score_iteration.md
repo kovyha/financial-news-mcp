@@ -7,6 +7,28 @@ This document tracks the evolution of the z-score signal methodology across iter
 
 ---
 
+## Iteration 3 — Winsorized baseline before EWM (2026-07-12)
+
+### What changed
+- Before computing the EWM mean/std, the 30-day `baseline_counts` window is now winsorized: any day above `median + winsorize_k * MAD` is capped to that value. One-sided (upper tail only) — article counts floor at 0, so a symmetric cap would rarely touch the low end.
+- `winsorize_k` (default `5.19`) is a new `[analysis]` config field, validated `> 0`, following the same pattern as `z_score_cap`. The default is `3.5 / 0.6745`, matching the Iglewicz & Hoaglin modified z-score outlier threshold (`|M| > 3.5`, where `M = 0.6745*(x-median)/MAD`) expressed in raw MAD units instead of `0.6745`-scaled units — an earlier draft used `k=3.5` directly, which was a more aggressive threshold than the textbook rule it was meant to match.
+- If MAD is 0 (common with sparse, mostly-zero baselines — no dispersion around the median), winsorization is a no-op rather than collapsing every above-median value down to the median.
+- `baseline_counts` in `compute_volume_stats()`'s return value stays **raw** (unwinsorized) — only the values fed into `_ewma_mean_std()` are capped. Consumers that read `baseline_counts` (tests, monitor gauges via `mean`/`std`, not the counts array itself) are unaffected in shape.
+
+### Files touched
+- `financial_news/analysis.py` — added `_winsorize_upper()`, wired into `compute_volume_stats()` ahead of `_ewma_mean_std()`, added `capped_days` to the info log line.
+- `financial_news/config.py` — added `winsorize_k` to `AnalysisConfig` and `load_config`.
+- `config.example.toml` — documented the new `[analysis] winsorize_k` key.
+- `tests/test_config.py` — added tests for `winsorize_k` defaults, loading, and validation.
+- `tests/test_calculate_z_score.py` — added direct unit tests for `_winsorize_upper()`.
+- `tests/test_get_news_volume.py` — added a wiring test confirming `compute_volume_stats()` calls `_winsorize_upper()` on the baseline before computing mean/std.
+
+### Rationale
+- A single outlier day sitting in the 30-day baseline (e.g. an old earnings/M&A headline burst) inflates the EWM std, which widens what counts as "normal" and can mask a genuinely unusual day today.
+- A full modified z-score (median/MAD replacing mean/std entirely) was considered but rejected: pandas has no built-in exponentially-weighted median/MAD, so it would either require abandoning the EWM recency-weighting added in Iteration 2 (losing gradual-regime adaptation) or writing a nonstandard, unverified weighted-median implementation. Winsorizing the *input* to the existing EWM pipeline gets the outlier-robustness benefit without touching the EWM machinery or its guarantees.
+
+---
+
 ## Iteration 2 — EWM baseline, calendar-day window, config-driven thresholds (2026-05-04)
 
 ### What changed

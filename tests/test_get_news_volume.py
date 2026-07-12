@@ -84,6 +84,26 @@ def test_compute_volume_stats_caps_z_score(monkeypatch):
     assert stats["z_score"] == analysis.Z_SCORE_CAP
 
 
+def test_compute_volume_stats_winsorizes_baseline_before_ewm(monkeypatch):
+    """baseline_counts stays raw in the output, but the mean/std feed is winsorized."""
+    monkeypatch.setattr(analysis, "_exchange_tz", lambda s: _ET)
+    monkeypatch.setattr(analysis, "fetch_news", lambda *_, **__: [])
+
+    calls = []
+    original = analysis._winsorize_upper
+
+    def spy(values, k):
+        calls.append((list(values), k))
+        return original(values, k)
+
+    monkeypatch.setattr(analysis, "_winsorize_upper", spy)
+
+    stats = analysis.compute_volume_stats("FAKE")
+
+    assert len(calls) == 1
+    assert calls[0] == (stats["baseline_counts"], analysis.WINSORIZE_K)
+
+
 # ── get_news_volume ───────────────────────────────────────────────────────────
 
 
