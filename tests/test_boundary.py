@@ -12,14 +12,16 @@ from pathlib import Path
 
 import pytest
 
-from financial_news import analysis, monitor, server
+from financial_news import analysis, monitor, price, server
 
 
 class TestBoundaryEnforcement:
     """Verify that the deterministic layer has no LLM inference."""
 
     @pytest.mark.parametrize(
-        "mod", [analysis, monitor, server], ids=["analysis", "monitor", "server"]
+        "mod",
+        [analysis, monitor, price, server],
+        ids=["analysis", "monitor", "price", "server"],
     )
     def test_deterministic_modules_contain_no_llm_imports(self, mod):
         """Verify no deterministic module imports an LLM client library."""
@@ -36,7 +38,9 @@ class TestBoundaryEnforcement:
             )
 
     @pytest.mark.parametrize(
-        "mod", [analysis, monitor, server], ids=["analysis", "monitor", "server"]
+        "mod",
+        [analysis, monitor, price, server],
+        ids=["analysis", "monitor", "price", "server"],
     )
     def test_deterministic_modules_contain_no_model_calls(self, mod):
         """Verify no deterministic module calls LLM inference APIs."""
@@ -70,6 +74,36 @@ class TestBoundaryEnforcement:
         )
         assert "z_score < 3" not in source, (
             "Hardcoded literal 3 found in classification; use THRESHOLD_UNUSUAL"
+        )
+
+    def test_price_threshold_constants_exist(self):
+        """Verify price classification thresholds are exported as named constants."""
+        assert hasattr(price, "PRICE_THRESHOLD_ELEVATED"), (
+            "PRICE_THRESHOLD_ELEVATED not defined"
+        )
+        assert hasattr(price, "PRICE_THRESHOLD_UNUSUAL"), (
+            "PRICE_THRESHOLD_UNUSUAL not defined"
+        )
+        assert isinstance(price.PRICE_THRESHOLD_ELEVATED, (int, float))
+        assert isinstance(price.PRICE_THRESHOLD_UNUSUAL, (int, float))
+        assert price.PRICE_THRESHOLD_ELEVATED < price.PRICE_THRESHOLD_UNUSUAL, (
+            "Price thresholds out of order"
+        )
+
+    def test_price_thresholds_not_inlined_in_compute_price_stats(self):
+        """Verify price classification logic uses named constants, not literals."""
+        source = inspect.getsource(price.compute_price_stats)
+        assert "PRICE_THRESHOLD_ELEVATED" in source, (
+            "compute_price_stats must reference PRICE_THRESHOLD_ELEVATED"
+        )
+        assert "PRICE_THRESHOLD_UNUSUAL" in source, (
+            "compute_price_stats must reference PRICE_THRESHOLD_UNUSUAL"
+        )
+        assert "z_score) < 2" not in source, (
+            "Hardcoded literal 2 found in classification; use PRICE_THRESHOLD_ELEVATED"
+        )
+        assert "z_score) < 3" not in source, (
+            "Hardcoded literal 3 found in classification; use PRICE_THRESHOLD_UNUSUAL"
         )
 
     def test_no_llm_packages_in_dependencies(self):

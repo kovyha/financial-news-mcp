@@ -83,9 +83,10 @@ and produces structured review output for a human to assess and post.
 
 ### Monitor
 
-**Purpose:** Runs daily after US market close. Fetches news volume stats for a configured
-ticker watchlist, then pushes z-score, recent count, and EWM mean as OpenTelemetry gauges
-to Grafana Cloud via OTLP. On failure, triggers the Diagnostic agent automatically.
+**Purpose:** Runs daily after US market close. Fetches news volume stats and price-move
+stats for a configured ticker watchlist, then pushes z-score, recent count, and EWM mean
+(for both signals) as OpenTelemetry gauges to Grafana Cloud via OTLP. On failure, triggers
+the Diagnostic agent automatically.
 
 The monitor is the first step of `.github/workflows/monitor.yaml`; the Briefing agent
 runs as the second step of the same job (sharing the runner and `/tmp`).
@@ -102,8 +103,17 @@ Grafana Cloud only. Does not modify any file in the repository.
 
 **Constraints:**
 - Deterministic only within `run()`. Calls `compute_volume_stats()` from `analysis.py`
-  and records the result via OTel gauges — no LLM inference occurs.
-- Inf z-scores (zero-baseline spikes) are capped at 99.0 so OTel gauges stay finite.
+  and `compute_price_stats()` from `price.py`, recording both results via OTel gauges —
+  no LLM inference occurs.
+- Inf/large z-scores (zero-baseline spikes, extreme price moves) are capped so OTel
+  gauges stay finite.
+- News and price fetches fail independently per ticker (a yfinance outage does not
+  block that ticker's news stats, and vice versa), each tracked by its own OTel error
+  counter (`financial_news.monitor_errors` / `financial_news.monitor_price_errors`).
+- A configurable delay (`[price] fetch_delay_seconds` in `config.toml`, default 1.0s)
+  is applied between per-ticker yfinance calls — yfinance is an unofficial scraper of
+  Yahoo's internal endpoints that is more sensitive to rapid back-to-back requests
+  than Finnhub's documented rate limit.
 - Ticker watchlist is driven by `[monitor]` in `config.toml` (default: 10-ticker list
   in `MonitorConfig`). Must not be hardcoded inside `monitor.py`.
 - All proposed changes require explicit human approval before merge.
@@ -200,6 +210,55 @@ a structured signal for Claude to reason over.
 - Requires `FINNHUB_API_KEY` in the environment.
 - Classification thresholds (normal / elevated / unusual) must not be changed without
   human review.
+
+### `get_price_move` (MCP Tool)
+
+**Type:** Deterministic signal tool (not an agent). Invoked by Claude, no autonomous decisions.
+
+**Purpose:** Detects a statistically unusual price move for a given stock symbol and
+returns a structured signal for Claude to reason over, expressed in the same z-score
+units as `get_news_volume` so the two can be directly compared.
+
+**Trigger:** Invoked by Claude via MCP in response to a user query.
+
+**Scope:** Read-only against the yfinance API. No write access to any system.
+
+**Constraints:**
+- Deterministic only. Fetches yfinance daily price history and a live quote, computes
+  a return z-score against an EWM baseline of prior returns (via `pandas`), and
+  classifies the result against configurable thresholds.
+- No model inference occurs inside this tool. All LLM reasoning begins after the tool
+  returns its output.
+- Requires no API key (yfinance is unauthenticated).
+- Classification thresholds (normal / elevated / unusual) must not be changed without
+  human review.
+
+### `get_price_intraday` (MCP Tool)
+
+**Type:** Deterministic signal tool (not an agent). Invoked by Claude, no autonomous decisions.
+
+**Purpose:** Fetches today's intraday price bars for a given stock symbol — a
+same-day attribution drill-down, not a second anomaly-detection signal. Lets Claude
+line up a specific timestamped headline (from `get_news_volume`'s `articles`, each
+of which carries a "time" field) against a specific intraday price move, when a
+ticker's daily price move or news volume is already classified elevated/unusual.
+
+**Trigger:** Invoked by Claude via MCP, typically after `get_price_move` or
+`get_news_volume` flags a ticker as elevated/unusual and same-day attribution is
+needed (e.g. more than one plausible news-driven move that day).
+
+**Scope:** Read-only against the yfinance API. No write access to any system.
+
+**Constraints:**
+- Deterministic only. Fetches today's intraday bars at a configurable interval
+  (`[price] intraday_interval` in `config.toml`, default 5-minute) and returns each
+  bar's exchange-local time, price, and cumulative return since the previous close.
+- No model inference occurs inside this tool. All LLM reasoning begins after the tool
+  returns its output.
+- Requires no API key (yfinance is unauthenticated).
+- Not called for the whole watchlist — `monitor.py` never calls it, and
+  `briefing.py` only builds its cache for tickers already classified
+  elevated/unusual, to keep yfinance call volume bounded.
 
 ### `health_check` (MCP Tool)
 

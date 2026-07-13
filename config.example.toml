@@ -49,6 +49,48 @@ z_score_cap = 99.0
 # Default: 5.19
 # winsorize_k = 5.19
 
+[price]
+
+# How many trading days back to build the return-volatility baseline for the
+# get_price_move signal. Must be > 0.
+# Default: 30
+# baseline_days = 30
+
+# Z-score thresholds classifying today's price move as normal / elevated /
+# unusual, applied to the absolute value of the z-score (a large move in
+# either direction is anomalous). threshold_elevated must be < threshold_unusual.
+# Defaults: 2.0 / 3.0
+# threshold_elevated = 2.0
+# threshold_unusual = 3.0
+
+# Cap applied to the price z-score's magnitude before exporting to Grafana
+# Cloud. Must be > 0.
+# Default: 99.0
+# z_score_cap = 99.0
+
+# Winsorization multiplier applied to the baseline daily returns before
+# computing the EWM mean/std. Unlike [analysis] winsorize_k (upper tail only),
+# this caps both tails — a single extreme historical move (crash or spike)
+# in either direction can't inflate the baseline std. Must be > 0.
+# Default: 5.19 (same derivation as [analysis] winsorize_k)
+# winsorize_k = 5.19
+
+# Delay (in seconds) between consecutive per-ticker yfinance calls in the
+# monitor's watchlist loop. Unlike Finnhub (a documented, generous per-minute
+# quota), yfinance is an unofficial scraper of Yahoo's internal endpoints that
+# is known to rate-limit or temporarily block IPs making rapid back-to-back
+# requests. Must be >= 0; 0 disables the delay.
+# Default: 1.0
+# fetch_delay_seconds = 1.0
+
+# Bar size for get_price_intraday's today-only drill-down bars (a same-day
+# attribution aid, not part of the daily anomaly signal above). Passed straight
+# through to yfinance's `interval` argument — not validated against a whitelist
+# here, since yfinance's supported values aren't owned by this project. An
+# invalid value surfaces as a clear error from price.py at fetch time instead.
+# Default: "5m"
+# intraday_interval = "5m"
+
 [monitor]
 
 # Tickers to watch during the daily monitoring run.

@@ -1,16 +1,18 @@
 # financial-news-mcp
 
-An MCP server that detects statistically unusual news volume on any stock ticker. The deterministic signal layer (z-score computation via pandas EWM) feeds Claude as structured context; Claude then reasons over the signal and headlines.
+An MCP server that detects statistically unusual news volume and price moves on any stock ticker, so Claude can reason about whether a price move looks news-driven. The deterministic signal layer (z-score computation via pandas EWM) feeds Claude as structured context; Claude then reasons over the signals and headlines.
 
 ## What this project is
 
-- Exposes two MCP tools: `get_news_volume` and `health_check`
-- `get_news_volume` fetches Finnhub news, computes a 30-day EWM baseline, calculates a z-score, and classifies the result as `normal` / `elevated` / `unusual` against configurable thresholds
-- All LLM reasoning begins *after* the tool returns structured output — no model inference occurs inside the tool
+- Exposes four MCP tools: `get_news_volume`, `get_price_move`, `get_price_intraday`, and `health_check`
+- `get_news_volume` fetches Finnhub news, computes a 30-day EWM baseline, calculates a z-score, and classifies the result as `normal` / `elevated` / `unusual` against configurable thresholds. Today's own articles carry a "time" field (exchange-local HH:MM:SS) for intraday attribution
+- `get_price_move` fetches daily price history via yfinance, computes a volatility-normalized return z-score against an EWM baseline of prior returns, and classifies it the same way — expressed in the same z-score units as the news signal so the two can be directly compared
+- `get_price_intraday` fetches today's intraday price bars (configurable interval, default 5-minute) — a same-day attribution drill-down, not a second anomaly-detection signal, meant to be called only after a ticker is already flagged elevated/unusual, to line up a specific timestamped headline against a specific intraday move
+- All LLM reasoning begins *after* a tool returns structured output — no model inference occurs inside any tool
 
 ## Architecture: the boundary that matters
 
-The deterministic/LLM boundary is the most important architectural property of this system. It is enforced by tests (`tests/test_boundary.py`), documented in `docs/SKILL.md`, and reviewed on every PR touching `financial_news/server.py`.
+The deterministic/LLM boundary is the most important architectural property of this system. It is enforced by tests (`tests/test_boundary.py`), documented in `docs/SKILL.md`, and reviewed on every PR touching `financial_news/server.py` or `financial_news/price.py`.
 
 Never move business logic (z-score math, classification thresholds, Finnhub fetch behaviour) into prompts, and never move interpretation into the deterministic layer.
 
@@ -19,13 +21,15 @@ Never move business logic (z-score math, classification thresholds, Finnhub fetc
 | File | What it does |
 |---|---|
 | [financial_news/server.py](financial_news/server.py) | MCP server, tool definitions, orchestration |
-| [financial_news/analysis.py](financial_news/analysis.py) | Z-score computation and EWM baseline logic |
+| [financial_news/analysis.py](financial_news/analysis.py) | News-volume z-score computation and EWM baseline logic |
+| [financial_news/price.py](financial_news/price.py) | Price-move signal — volatility-normalized return z-score per ticker (via yfinance), mirroring the news-volume z-score so the two can be directly compared. Also provides today-only intraday bars (`fetch_intraday_prices`) for same-day attribution. Intentionally decoupled from `analysis.py` (no Finnhub dependency) |
+| [financial_news/timeseries.py](financial_news/timeseries.py) | Shared EWM mean/std helper used by both `analysis.py` and `price.py` |
 | [financial_news/config.py](financial_news/config.py) | Config loader — thresholds, baseline window, logging settings |
-| [financial_news/briefing.py](financial_news/briefing.py) | Daily briefing agent — computes watchlist z-scores via the enrichment pipeline and calls Claude (Opus 4.7) to reason over elevated/unusual tickers |
+| [financial_news/briefing.py](financial_news/briefing.py) | Daily briefing agent — computes watchlist news and price z-scores and calls Claude (Opus 4.7) to reason over elevated/unusual tickers, cross-referencing the two signals |
 | [financial_news/enrichment.py](financial_news/enrichment.py) | Centralised enrichment pipeline — finBERT scoring, confidence-threshold article selection, and neutral-article filtering for elevated/unusual tickers; used by both the MCP server and the briefing agent |
 | [financial_news/sentiment.py](financial_news/sentiment.py) | finBERT sentiment scoring — deterministic preprocessing for the briefing; requires the `sentiment` dep group |
 | [financial_news/diagnostic.py](financial_news/diagnostic.py) | LLM-powered diagnostic agent — reads error logs, then calls Claude (Opus 4.7) to identify root cause and propose a fix |
-| [financial_news/monitor.py](financial_news/monitor.py) | Daily monitoring agent — fetches watchlist z-scores and exports OTel gauges to Grafana Cloud |
+| [financial_news/monitor.py](financial_news/monitor.py) | Daily monitoring agent — fetches watchlist news and price z-scores and exports OTel gauges to Grafana Cloud (independent failure handling per signal) |
 | [financial_news/snapshot.py](financial_news/snapshot.py) | Passes monitor stats to the briefing step within the same workflow run (date-keyed, atomic write) |
 | [config.example.toml](config.example.toml) | Copy to `config.toml` to customize thresholds and logging |
 

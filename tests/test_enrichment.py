@@ -136,23 +136,18 @@ def test_enrich_stats_passes_classification_to_select(monkeypatch):
         "score_headlines",
         lambda articles, *_: [
             {
-                "headline": "Neutral noise",
-                "summary": "",
-                "label": "neutral",
-                "score": 0.95,
-            },
-            {
-                "headline": "Negative signal",
-                "summary": "",
-                "label": "negative",
-                "score": 0.92,
-            },
+                "headline": a["headline"],
+                "summary": a.get("summary", ""),
+                "label": "neutral" if a["headline"] == "Headline A" else "negative",
+                "score": 0.95 if a["headline"] == "Headline A" else 0.92,
+            }
+            for a in articles
         ],
     )
     result = enrichment.enrich_stats(_base_stats("unusual"), _CFG)
     selected_headlines = [a["headline"] for a in result["selected_articles"]]
-    assert "Negative signal" in selected_headlines
-    assert "Neutral noise" not in selected_headlines
+    assert "Headline B" in selected_headlines
+    assert "Headline A" not in selected_headlines
 
 
 def test_enrich_stats_preserves_original_fields(monkeypatch):

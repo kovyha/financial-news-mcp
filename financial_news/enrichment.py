@@ -65,8 +65,8 @@ def enrich_stats(stats: dict, cfg: EnrichmentConfig) -> dict:
 
     Also scores the multi-day headline_articles window (if present) using the same
     neutral-filtering logic, producing selected_headline_articles for LLM context.
-    date and source fields are preserved via zip-join since score_headlines only
-    outputs headline/summary/label/score.
+    date and source fields (and today's "time" field, if present) are preserved via
+    zip-join since score_headlines only outputs headline/summary/label/score.
     """
     if "error" in stats:
         return stats
@@ -88,7 +88,11 @@ def enrich_stats(stats: dict, cfg: EnrichmentConfig) -> dict:
         }
 
     logger.info("ticker=%s articles_to_score=%d", ticker, len(source))
-    all_scored = sentiment.score_headlines(source, cfg.model_name, cfg.valid_labels)
+    raw_scores = sentiment.score_headlines(source, cfg.model_name, cfg.valid_labels)
+    all_scored = [
+        {**orig, "label": s["label"], "score": s["score"]}
+        for orig, s in zip(source, raw_scores)
+    ]
 
     label_counts: dict[str, int] = {}
     for item in all_scored:

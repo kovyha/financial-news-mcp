@@ -21,11 +21,14 @@ def _text_block(text: str) -> MagicMock:
     return b
 
 
-def _tool_use_block(block_id: str, ticker: str) -> MagicMock:
+def _tool_use_block(
+    block_id: str, ticker: str, name: str = "get_news_headlines"
+) -> MagicMock:
     b = MagicMock()
     b.type = "tool_use"
     b.id = block_id
     b.input = {"ticker": ticker}
+    b.name = name
     return b
 
 
@@ -57,15 +60,34 @@ _MAX = BriefingConfig.max_headlines
 # ── _collect_stats ────────────────────────────────────────────────────────────
 
 
+def _sample_price_stats(symbol: str = "NVDA", classification: str = "normal") -> dict:
+    return {
+        "symbol": symbol,
+        "current_price": 100.0,
+        "previous_close": 99.0,
+        "return_pct": 0.0101,
+        "mean": 0.0,
+        "std": 0.01,
+        "z_score": 1.0,
+        "classification": classification,
+        "baseline_days": 30,
+    }
+
+
 def test_collect_stats_success(monkeypatch):
     monkeypatch.setattr(
         "financial_news.briefing.compute_volume_stats",
         lambda ticker: _sample_stats(ticker),
     )
+    monkeypatch.setattr(
+        "financial_news.briefing.compute_price_stats",
+        lambda ticker: _sample_price_stats(ticker),
+    )
     results = briefing._collect_stats(["NVDA", "TSLA"])
     assert len(results) == 2
     assert results[0]["ticker"] == "NVDA"
     assert results[0]["z_score"] == 3.5
+    assert results[0]["price"]["symbol"] == "NVDA"
 
 
 def test_collect_stats_error_path(monkeypatch):
@@ -76,6 +98,95 @@ def test_collect_stats_error_path(monkeypatch):
     results = briefing._collect_stats(["NVDA"])
     assert "error" in results[0]
     assert results[0]["ticker"] == "NVDA"
+
+
+def test_collect_stats_price_failure_still_returns_news_stats(monkeypatch):
+    """A yfinance outage must not discard the ticker's news stats."""
+    monkeypatch.setattr(
+        "financial_news.briefing.compute_volume_stats",
+        lambda ticker: _sample_stats(ticker),
+    )
+    monkeypatch.setattr(
+        "financial_news.briefing.compute_price_stats",
+        lambda ticker: (_ for _ in ()).throw(RuntimeError("yfinance down")),
+    )
+    results = briefing._collect_stats(["NVDA"])
+    assert "error" not in results[0]
+    assert results[0]["ticker"] == "NVDA"
+    assert "price" not in results[0]
+
+
+# ── _is_flagged / _format_intraday_bars / _build_intraday_cache ──────────────
+
+
+def test_is_flagged_true_when_news_elevated():
+    s = _sample_stats("NVDA", "elevated")
+    assert briefing._is_flagged(s)
+
+
+def test_is_flagged_true_when_price_unusual():
+    s = _sample_stats("NVDA", "normal")
+    s["price"] = _sample_price_stats("NVDA", "unusual")
+    assert briefing._is_flagged(s)
+
+
+def test_is_flagged_false_when_both_normal():
+    s = _sample_stats("NVDA", "normal")
+    s["price"] = _sample_price_stats("NVDA", "normal")
+    assert not briefing._is_flagged(s)
+
+
+def test_is_flagged_false_when_price_absent_and_news_normal():
+    s = _sample_stats("NVDA", "normal")
+    assert not briefing._is_flagged(s)
+
+
+def test_format_intraday_bars_empty():
+    assert briefing._format_intraday_bars([]) == "No intraday price data available."
+
+
+def test_format_intraday_bars_formats_time_price_and_return():
+    bars = [{"time": "09:30:00", "price": 100.5, "return_from_prev_close": 0.032}]
+    text = briefing._format_intraday_bars(bars)
+    assert "09:30:00" in text
+    assert "$100.50" in text
+    assert "+3.20%" in text
+
+
+def test_build_intraday_cache_only_fetches_flagged_tickers(monkeypatch):
+    fetch_calls = []
+
+    def fake_fetch(ticker):
+        fetch_calls.append(ticker)
+        return {
+            "date": "2026-07-13",
+            "bars": [{"time": "09:30:00", "price": 1.0, "return_from_prev_close": 0.0}],
+        }
+
+    monkeypatch.setattr("financial_news.briefing.fetch_intraday_prices", fake_fetch)
+
+    flagged = _sample_stats("NVDA", "unusual")
+    normal = _sample_stats("TSLA", "normal")
+    normal["price"] = _sample_price_stats("TSLA", "normal")
+    error = {"ticker": "FAIL", "error": "fetch failed"}
+
+    cache = briefing._build_intraday_cache([flagged, normal, error])
+
+    assert fetch_calls == ["NVDA"]
+    assert "NVDA" in cache
+    assert "TSLA" not in cache
+    assert "FAIL" not in cache
+
+
+def test_build_intraday_cache_handles_fetch_failure(monkeypatch):
+    monkeypatch.setattr(
+        "financial_news.briefing.fetch_intraday_prices",
+        lambda ticker: (_ for _ in ()).throw(RuntimeError("yfinance down")),
+    )
+    flagged = _sample_stats("NVDA", "unusual")
+
+    cache = briefing._build_intraday_cache([flagged])
+    assert cache["NVDA"] == "No intraday price data available."
 
 
 # ── _format_stats_for_prompt ──────────────────────────────────────────────────
@@ -112,6 +223,36 @@ def test_format_stats_with_selected_articles():
     assert "Nvidia beats estimates" in text
 
 
+def test_format_stats_shows_time_prefix_when_present():
+    """Today's article time must be visible so Claude can attribute intraday moves."""
+    s = _sample_stats("NVDA", "unusual")
+    s["selected_articles"] = [
+        {
+            "headline": "Nvidia beats estimates",
+            "summary": "",
+            "label": "positive",
+            "score": 0.97,
+            "time": "09:35:12",
+        },
+    ]
+    text = briefing._format_stats_for_prompt([s])
+    assert "[09:35:12]" in text
+
+
+def test_format_stats_omits_time_prefix_when_absent():
+    s = _sample_stats("NVDA", "unusual")
+    s["selected_articles"] = [
+        {
+            "headline": "Nvidia beats estimates",
+            "summary": "",
+            "label": "positive",
+            "score": 0.97,
+        },
+    ]
+    text = briefing._format_stats_for_prompt([s])
+    assert "[positive 0.97] Nvidia beats estimates" in text
+
+
 def test_format_stats_shows_summary_when_present():
     """Article summary appears in the prompt block when non-empty."""
     s = _sample_stats("NVDA", "unusual")
@@ -143,6 +284,30 @@ def test_format_stats_no_headlines():
     s["headlines"] = []
     text = briefing._format_stats_for_prompt([s])
     assert "no headlines today" in text
+
+
+def test_format_stats_includes_price_move_when_present():
+    s = _sample_stats("NVDA", "unusual")
+    s["price"] = _sample_price_stats("NVDA", "elevated")
+    text = briefing._format_stats_for_prompt([s])
+    assert "price_move=+1.01%" in text
+    assert "z=1.00" in text
+    assert "elevated" in text
+
+
+def test_format_stats_omits_price_move_when_absent():
+    stats = [_sample_stats("NVDA", "normal")]
+    text = briefing._format_stats_for_prompt(stats)
+    assert "price_move" not in text
+
+
+def test_system_prompt_instructs_cross_referencing_price_and_news():
+    assert "price" in briefing._SYSTEM_PROMPT.lower()
+    assert "news-driven" in briefing._SYSTEM_PROMPT.lower()
+
+
+def test_system_prompt_mentions_get_price_intraday():
+    assert "get_price_intraday" in briefing._SYSTEM_PROMPT
 
 
 def test_format_stats_error_entry():
@@ -230,7 +395,7 @@ def test_run_briefing_end_turn(monkeypatch):
     monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
 
     result = briefing._run_briefing(
-        [_sample_stats("NVDA", "normal")], _BASELINE, _DAYS, {}
+        [_sample_stats("NVDA", "normal")], _BASELINE, _DAYS, {}, {}
     )
     assert "Watchlist is quiet today." in result
 
@@ -247,6 +412,7 @@ def test_run_briefing_prompt_uses_configured_baseline_days(monkeypatch):
         baseline_days=60,
         headline_days=14,
         headlines_cache={},
+        intraday_cache={},
     )
 
     call_kwargs = mock_client.messages.create.call_args[1]
@@ -261,7 +427,7 @@ def test_run_briefing_unexpected_stop_reason(monkeypatch):
     mock_client.messages.create.return_value = resp
     monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
 
-    result = briefing._run_briefing([_sample_stats()], _BASELINE, _DAYS, {})
+    result = briefing._run_briefing([_sample_stats()], _BASELINE, _DAYS, {}, {})
     assert "max_tokens" in result
 
 
@@ -284,13 +450,54 @@ def test_run_briefing_tool_use_loop(monkeypatch):
     monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
 
     result = briefing._run_briefing(
-        [_sample_stats("NVDA", "unusual")], _BASELINE, _DAYS, headlines_cache
+        [_sample_stats("NVDA", "unusual")], _BASELINE, _DAYS, headlines_cache, {}
     )
     assert "NVDA" in result
 
     second_msgs = mock_client.messages.create.call_args_list[1][1]["messages"]
     tool_result_content = second_msgs[-1]["content"][0]["content"]
     assert "NVIDIA H200 launch" in tool_result_content
+
+
+def test_run_briefing_tool_use_loop_price_intraday(monkeypatch):
+    """Claude calls get_price_intraday and gets the intraday cache, not headlines."""
+    intraday_cache = {"NVDA": "- 09:30:00: $450.00 (+3.20% vs previous close)"}
+
+    tool_resp = _response(
+        "tool_use",
+        [
+            _text_block("checking intraday..."),
+            _tool_use_block("c1", "NVDA", name="get_price_intraday"),
+        ],
+    )
+    end_resp = _response("end_turn", [_text_block("NVDA: gapped up at the open.")])
+
+    mock_client = MagicMock()
+    mock_client.messages.create.side_effect = [tool_resp, end_resp]
+    monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
+
+    result = briefing._run_briefing(
+        [_sample_stats("NVDA", "unusual")], _BASELINE, _DAYS, {}, intraday_cache
+    )
+    assert "NVDA" in result
+
+    second_msgs = mock_client.messages.create.call_args_list[1][1]["messages"]
+    tool_result_content = second_msgs[-1]["content"][0]["content"]
+    assert "09:30:00" in tool_result_content
+    assert tool_result_content == intraday_cache["NVDA"]
+
+
+def test_run_briefing_tools_list_includes_price_intraday(monkeypatch):
+    """The Claude tool schema must offer get_price_intraday, not just headlines."""
+    resp = _response("end_turn", [_text_block("ok")])
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = resp
+    monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
+
+    briefing._run_briefing([_sample_stats()], _BASELINE, _DAYS, {}, {})
+
+    tool_names = {t["name"] for t in mock_client.messages.create.call_args[1]["tools"]}
+    assert tool_names == {"get_news_headlines", "get_price_intraday"}
 
 
 # ── main ──────────────────────────────────────────────────────────────────────

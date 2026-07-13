@@ -1,7 +1,11 @@
 """Daily monitoring agent for financial-news-mcp.
 
-Fetches news volume stats for a configured watchlist of tickers, then pushes
-z-score, recent count, and EWM mean as OpenTelemetry metrics to Grafana Cloud.
+Fetches news volume and price-move stats for a configured watchlist of tickers,
+then pushes both signals' z-score, recent count/return, and EWM mean as
+OpenTelemetry metrics to Grafana Cloud. The two signals fail independently per
+ticker. A configurable delay is applied between per-ticker yfinance calls
+([price] fetch_delay_seconds in config.toml) since yfinance is more sensitive
+to rapid back-to-back requests than Finnhub.
 
 Run via GitHub Actions (monitor.yaml) or manually:
     FINNHUB_API_KEY=<key> \\
@@ -13,6 +17,7 @@ Run via GitHub Actions (monitor.yaml) or manually:
 import logging
 import os
 import sys
+import time
 from pathlib import Path
 
 from opentelemetry import metrics
@@ -28,6 +33,7 @@ from financial_news import (
 )
 from financial_news.analysis import GAUGE_SPECS, compute_volume_stats
 from financial_news.config import load_config
+from financial_news.price import PRICE_GAUGE_SPECS, compute_price_stats
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +54,7 @@ def run(
     tickers: list[str],
     z_score_cap: float = 99.0,
     snapshot_path: Path = Path("/tmp/financial_news_snapshot.json"),
+    price_fetch_delay_seconds: float = 0.0,
 ) -> int:
     meter = metrics.get_meter("financial_news.monitor")
 
@@ -55,9 +62,17 @@ def run(
         key: meter.create_gauge(name, description=desc)
         for key, name, desc in GAUGE_SPECS
     }
+    price_gauges = {
+        key: meter.create_gauge(name, description=desc)
+        for key, name, desc in PRICE_GAUGE_SPECS
+    }
     error_counter = meter.create_counter(
         "financial_news.monitor_errors",
         description="Finnhub API errors during monitoring run",
+    )
+    price_error_counter = meter.create_counter(
+        "financial_news.monitor_price_errors",
+        description="yfinance API errors during monitoring run",
     )
 
     errors = 0
@@ -77,11 +92,36 @@ def run(
                 stats["z_score"],
                 stats["classification"],
             )
-            snapshot_stats.append(stats)
         except Exception:
             logger.exception("ticker=%s failed", ticker)
             error_counter.add(1, {"ticker": ticker})
             errors += 1
+            continue
+
+        try:
+            price_stats = compute_price_stats(ticker)
+            stats["price"] = price_stats
+            price_attrs = {
+                "ticker": ticker,
+                "classification": price_stats["classification"],
+            }
+            for key, gauge in price_gauges.items():
+                gauge.set(price_stats[key], price_attrs)
+            logger.info(
+                "ticker=%s price_z=%.2f price_classification=%s",
+                ticker,
+                price_stats["z_score"],
+                price_stats["classification"],
+            )
+        except Exception:
+            logger.exception("ticker=%s price fetch failed", ticker)
+            price_error_counter.add(1, {"ticker": ticker})
+            errors += 1
+        finally:
+            if price_fetch_delay_seconds > 0:
+                time.sleep(price_fetch_delay_seconds)
+
+        snapshot_stats.append(stats)
 
     if snapshot_stats:
         snapshot.write(snapshot_stats, snapshot_path)
@@ -104,6 +144,7 @@ def main() -> int:
         cfg.monitor.tickers,
         cfg.analysis.z_score_cap,
         Path(cfg.monitor.snapshot_path),
+        cfg.price.fetch_delay_seconds,
     )
 
 

@@ -7,6 +7,7 @@ from financial_news.config import (
     EmailConfig,
     LoggingConfig,
     MonitorConfig,
+    PriceConfig,
     load_config,
 )
 
@@ -172,6 +173,145 @@ def test_analysis_threshold_ordering_raises(tmp_path):
         "[analysis]\nthreshold_elevated = 3.0\nthreshold_unusual = 2.0\n"
     )
     with pytest.raises(ValueError, match="threshold_elevated.*must be less than"):
+        load_config(path=config_file)
+
+
+# ---------------------------------------------------------------------------
+# [price] section
+# ---------------------------------------------------------------------------
+
+
+def test_price_defaults_when_no_file(tmp_path):
+    cfg = load_config(path=tmp_path / "config.toml")
+    assert cfg.price.baseline_days == 30
+    assert cfg.price.threshold_elevated == 2.0
+    assert cfg.price.threshold_unusual == 3.0
+    assert cfg.price.z_score_cap == 99.0
+    assert cfg.price.winsorize_k == 5.19
+    assert cfg.price.fetch_delay_seconds == 1.0
+    assert cfg.price.intraday_interval == "5m"
+
+
+def test_price_values_loaded_from_file(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        "[price]\n"
+        "baseline_days = 20\n"
+        "threshold_elevated = 1.5\n"
+        "threshold_unusual = 2.5\n"
+    )
+    cfg = load_config(path=config_file)
+    assert cfg.price.baseline_days == 20
+    assert cfg.price.threshold_elevated == 1.5
+    assert cfg.price.threshold_unusual == 2.5
+
+
+def test_price_partial_overrides_use_defaults(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[price]\nbaseline_days = 60\n")
+    cfg = load_config(path=config_file)
+    assert cfg.price.baseline_days == 60
+    assert cfg.price.threshold_elevated == PriceConfig.threshold_elevated
+    assert cfg.price.threshold_unusual == PriceConfig.threshold_unusual
+
+
+def test_price_z_score_cap_loaded_from_file(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[price]\nz_score_cap = 50.0\n")
+    cfg = load_config(path=config_file)
+    assert cfg.price.z_score_cap == 50.0
+
+
+def test_price_z_score_cap_zero_raises(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[price]\nz_score_cap = 0.0\n")
+    with pytest.raises(ValueError, match="z_score_cap must be > 0"):
+        load_config(path=config_file)
+
+
+def test_price_winsorize_k_loaded_from_file(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[price]\nwinsorize_k = 5.0\n")
+    cfg = load_config(path=config_file)
+    assert cfg.price.winsorize_k == 5.0
+
+
+def test_price_winsorize_k_zero_raises(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[price]\nwinsorize_k = 0.0\n")
+    with pytest.raises(ValueError, match="winsorize_k must be > 0"):
+        load_config(path=config_file)
+
+
+def test_price_unrecognised_key_raises(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[price]\nunknown_key = 99\n")
+    with pytest.raises(ValueError, match="unrecognised keys"):
+        load_config(path=config_file)
+
+
+def test_price_baseline_days_zero_raises(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[price]\nbaseline_days = 0\n")
+    with pytest.raises(ValueError, match="baseline_days must be > 0"):
+        load_config(path=config_file)
+
+
+def test_price_threshold_ordering_raises(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        "[price]\nthreshold_elevated = 3.0\nthreshold_unusual = 2.0\n"
+    )
+    with pytest.raises(ValueError, match="threshold_elevated.*must be less than"):
+        load_config(path=config_file)
+
+
+def test_price_fetch_delay_seconds_loaded_from_file(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[price]\nfetch_delay_seconds = 2.5\n")
+    cfg = load_config(path=config_file)
+    assert cfg.price.fetch_delay_seconds == 2.5
+
+
+def test_price_fetch_delay_seconds_zero_is_allowed(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[price]\nfetch_delay_seconds = 0.0\n")
+    cfg = load_config(path=config_file)
+    assert cfg.price.fetch_delay_seconds == 0.0
+
+
+def test_price_fetch_delay_seconds_negative_raises(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[price]\nfetch_delay_seconds = -1.0\n")
+    with pytest.raises(ValueError, match="fetch_delay_seconds must be >= 0"):
+        load_config(path=config_file)
+
+
+def test_price_intraday_interval_default(tmp_path):
+    cfg = load_config(path=tmp_path / "config.toml")
+    assert cfg.price.intraday_interval == "5m"
+
+
+def test_price_intraday_interval_loaded_from_file(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[price]\nintraday_interval = "15m"\n')
+    cfg = load_config(path=config_file)
+    assert cfg.price.intraday_interval == "15m"
+
+
+def test_price_intraday_interval_not_validated_against_whitelist(tmp_path):
+    """Any non-empty string is accepted -- yfinance's valid set isn't duplicated
+    here, so an unusual value is only rejected later, at fetch time in price.py."""
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[price]\nintraday_interval = "3m"\n')
+    cfg = load_config(path=config_file)
+    assert cfg.price.intraday_interval == "3m"
+
+
+def test_price_intraday_interval_empty_raises(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[price]\nintraday_interval = ""\n')
+    with pytest.raises(ValueError, match="intraday_interval must not be empty"):
         load_config(path=config_file)
 
 

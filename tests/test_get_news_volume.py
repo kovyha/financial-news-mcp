@@ -249,6 +249,83 @@ def test_get_news_volume_articles_structure(monkeypatch):
         assert "summary" in article
         assert "label" in article
         assert "score" in article
+        assert "time" in article
+
+
+# ── intraday attribution: "time" field on today's articles ──────────────────
+
+
+def test_compute_volume_stats_today_articles_have_time_field(monkeypatch):
+    """Today's articles/recent_articles carry a time field for intraday
+    attribution against get_price_intraday."""
+    et = ZoneInfo("America/New_York")
+    monkeypatch.setattr(analysis, "_exchange_tz", lambda symbol: et)
+    today = datetime.now(et).date()
+
+    def fake_fetch(symbol, from_date, to_date):
+        return make_articles(2) if from_date == today else []
+
+    monkeypatch.setattr(analysis, "fetch_news", fake_fetch)
+
+    stats = analysis.compute_volume_stats("FAKE")
+    for article in stats["articles"]:
+        assert "time" in article
+    for article in stats["recent_articles"]:
+        assert "time" in article
+
+
+def test_compute_volume_stats_time_field_matches_article_datetime(monkeypatch):
+    et = ZoneInfo("America/New_York")
+    monkeypatch.setattr(analysis, "_exchange_tz", lambda symbol: et)
+    today = datetime.now(et).date()
+    ts = int(
+        datetime(today.year, today.month, today.day, 14, 5, 30, tzinfo=et).timestamp()
+    )
+    raw = [{"datetime": ts, "headline": "an article", "summary": ""}]
+
+    def fake_fetch(symbol, from_date, to_date):
+        return raw if from_date == today else []
+
+    monkeypatch.setattr(analysis, "fetch_news", fake_fetch)
+
+    stats = analysis.compute_volume_stats("FAKE")
+    assert stats["recent_articles"][0]["time"] == "14:05:30"
+
+
+def test_compute_volume_stats_headline_articles_have_no_time_field(monkeypatch):
+    """The multi-day background window keeps date-only precision."""
+    et = ZoneInfo("America/New_York")
+    monkeypatch.setattr(analysis, "_exchange_tz", lambda symbol: et)
+    today = datetime.now(et).date()
+    baseline = make_baseline_from_counts([1, 1, 1, 1, 1, 1, 1])
+
+    def fake_fetch(symbol, from_date, to_date):
+        return [] if from_date == today else baseline
+
+    monkeypatch.setattr(analysis, "fetch_news", fake_fetch)
+
+    stats = analysis.compute_volume_stats("FAKE")
+    for article in stats["headline_articles"]:
+        assert "time" not in article
+        assert "date" in article
+
+
+def test_get_news_volume_articles_time_survives_enrichment(monkeypatch):
+    """The zip-join in enrich_stats must preserve "time" through scoring/selection."""
+    et = ZoneInfo("America/New_York")
+    monkeypatch.setattr(analysis, "_exchange_tz", lambda symbol: et)
+    today = datetime.now(et).date()
+    recent = make_articles(1)
+
+    def fake_fetch(symbol, from_date, to_date):
+        return recent if from_date == today else []
+
+    monkeypatch.setattr(analysis, "fetch_news", fake_fetch)
+    _mock_sentiment_unavailable(monkeypatch)
+
+    out = server.get_news_volume("FAKE")
+    assert len(out["articles"]) == 1
+    assert out["articles"][0]["time"] != ""
 
 
 # ── server import guard ───────────────────────────────────────────────────────

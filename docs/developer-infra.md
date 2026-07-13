@@ -14,22 +14,28 @@ For the canonical contributor workflow and validation commands, see `CONTRIBUTIN
 
 ## Key files
 - `financial_news/` — package directory:
-  - `server.py` — MCP server exposing tools (`get_news_volume`, `health_check`).
-  - `config.py` — configuration loader for logging and analysis settings (baseline window, classification thresholds).
-  - `briefing.py` — daily briefing agent; runs the enrichment pipeline over watchlist stats, then calls Claude to produce a plain-language briefing.
+  - `server.py` — MCP server exposing tools (`get_news_volume`, `get_price_move`, `get_price_intraday`, `health_check`).
+  - `config.py` — configuration loader for logging, analysis, and price settings (baseline window, classification thresholds).
+  - `briefing.py` — daily briefing agent; runs the enrichment pipeline over watchlist stats (news + price), then calls Claude (with `get_news_headlines` and, for elevated/unusual tickers, `get_price_intraday`) to produce a plain-language briefing.
   - `enrichment.py` — centralised enrichment pipeline: finBERT scoring, confidence-threshold article selection, and neutral-article filtering for elevated/unusual tickers; used by both the MCP server and the briefing agent.
   - `sentiment.py` — finBERT sentiment scoring; deterministic preprocessing for the briefing agent. Requires the `sentiment` dep group (`uv sync --group sentiment`).
   - `diagnostic.py` — LLM-powered diagnostic agent; reads error logs then calls Claude to identify root cause and propose a fix.
-  - `monitor.py` — daily monitoring agent; pushes z-score/count/EWM mean as OTel gauges to Grafana Cloud.
+  - `monitor.py` — daily monitoring agent; pushes news z-score/count/EWM mean and price z-score/return/EWM mean as OTel gauges to Grafana Cloud.
+  - `price.py` — deterministic price-move signal: a volatility-normalized return z-score per ticker (via yfinance), mirroring `analysis.py`'s news-volume z-score so the two can be directly compared. Also provides `fetch_intraday_prices`, a same-day-only attribution drill-down (not part of the anomaly-detection signal), fetched on demand only for tickers already flagged elevated/unusual.
+  - `timeseries.py` — shared EWM mean/std helper used by both `analysis.py` and `price.py`.
   - `__init__.py` — package initialization.
 - `tests/` — pytest test files and fixtures:
   - `test_calculate_z_score.py` — unit tests for z-score calculation.
   - `test_get_news_volume.py` — integration tests for news-volume detection.
+  - `test_price.py` — unit tests for the price-move z-score, two-sided winsorization, and `compute_price_stats` (mocked yfinance).
+  - `test_get_price_move.py` — integration tests for the `get_price_move` MCP tool.
+  - `test_get_price_intraday.py` — integration tests for the `get_price_intraday` MCP tool.
+  - `test_e2e_price.py` — end-to-end tests against the live yfinance API; skipped unless `RUN_PRICE_E2E=1` (`uv run pytest -m price`).
   - `test_boundary.py` — tests enforcing the deterministic/LLM boundary.
   - `test_config.py` — tests for the configuration system.
   - `test_logging.py` — tests for logging and rollover behavior.
   - `test_diagnostic.py` — tests for the diagnostic agent.
-  - `test_monitor.py` — tests for the monitoring agent (run(), gauge values, OTel wiring).
+  - `test_monitor.py` — tests for the monitoring agent (run(), gauge values for both news and price, OTel wiring, independent failure handling).
   - `conftest.py` — pytest configuration and fixtures.
 - `docs/` — documentation for iterations and developer notes.
 - `.github/workflows/` — GitHub Actions CI/CD workflows:
@@ -41,7 +47,7 @@ For the canonical contributor workflow and validation commands, see `CONTRIBUTIN
 - `CONTRIBUTING.md` — canonical contributor workflow and validation steps.
 - `MAINTAINERS.md` — project maintainers and their responsibilities.
 - `CHANGELOG.md` — change history across iterations.
-- `pyproject.toml` — project metadata, dependencies, and `build-system` config for setuptools. The `diagnostic` dependency group (`anthropic`) is separate from the main runtime deps to keep the MCP server's install surface free of LLM packages.
+- `pyproject.toml` — project metadata, dependencies, and `build-system` config for setuptools. The `diagnostic` dependency group (`anthropic`) is separate from the main runtime deps to keep the MCP server's install surface free of LLM packages. `yfinance` (price-move history/quotes) is a main runtime dependency, not an optional group — it's required for `get_price_move` to function at all, unlike the optional sentiment/diagnostic enhancements.
 - `docs/engineering-standards.md` — code quality and review expectations for humans and agents.
 - `uv.lock` — locked dependency versions (managed by `uv`).
 
@@ -80,11 +86,12 @@ python -m pip install -r requirements.txt  # if you maintain one
 - **Configuration system tests:** `test_config.py` covers config loading, defaults, validation, and error handling.
 - **Logging system tests:** `test_logging.py` verifies the timestamp-based rolling file handler and compression behavior.
 - **Diagnostic agent tests:** `test_diagnostic.py` tests error log parsing, diagnostic reporting, and the LLM agentic loop (using mocked Anthropic client responses — no real API calls in CI).
-- **Briefing agent tests:** `test_briefing.py` tests stat collection, prompt formatting, and the LLM agentic loop (mocked — no real API calls in CI).
+- **Briefing agent tests:** `test_briefing.py` tests stat collection, prompt formatting (including today's per-article "time" and the elevated/unusual-only intraday cache), and the two-tool LLM agentic loop (`get_news_headlines` + `get_price_intraday`, mocked — no real API calls in CI).
 - **Enrichment pipeline tests:** `test_enrichment.py` tests `enrich_stats`, `enrich_ticker`, and `select_articles` — covering sentiment scoring, confidence-threshold filtering, neutral-article discarding for elevated/unusual tickers, and fallback behaviour for zero-news tickers.
 - **Sentiment tests:** `test_sentiment.py` tests finBERT scoring (pipeline mocking, label normalisation, score rounding).
 - **E2E deterministic tests:** `test_e2e_deterministic.py` runs against the live Finnhub API; skipped in CI unless a real `FINNHUB_API_KEY` is provided (`uv run pytest -m e2e`).
-- **Monitor agent tests:** `test_monitor.py` covers run() success/failure/partial, gauge value correctness, OTel provider wiring, and GAUGE_SPECS contract.
+- **Price-move signal tests:** `test_price.py` (z-score/winsorize unit tests, `compute_price_stats` with mocked yfinance) and `test_e2e_price.py` (live yfinance, requires `RUN_PRICE_E2E=1`, `uv run pytest -m price`).
+- **Monitor agent tests:** `test_monitor.py` covers run() success/failure/partial for both news and price signals independently, gauge value correctness, OTel provider wiring, and GAUGE_SPECS/PRICE_GAUGE_SPECS contracts.
 - **Test fixtures:** `conftest.py` sets `FINNHUB_API_KEY` to a harmless default for test imports and ensures test runners can find the package.
 
 ## Packaging rationale

@@ -96,15 +96,17 @@ sequence:
 
 ## Code review checklist: Deterministic/LLM boundary
 
-When reviewing changes to `financial_news/server.py` or `financial_news/monitor.py`, verify:
+When reviewing changes to `financial_news/server.py`, `financial_news/monitor.py`, or
+`financial_news/price.py`, verify:
 
-- [ ] Does `get_news_volume()`, `run()`, or their helpers call any LLM API? (Must be NO)
-- [ ] Are classification thresholds only modified via `AnalysisConfig` in `config.py` or `config.toml`?
+- [ ] Does `get_news_volume()`, `get_price_move()`, `get_price_intraday()`, `run()`, or their helpers call any LLM API? (Must be NO)
+- [ ] Are classification thresholds only modified via `AnalysisConfig`/`PriceConfig` in `config.py` or `config.toml`?
       (Not inlined in code, not in prompts)
 - [ ] Are all data transformations in the deterministic layer testable and reproducible?
 - [ ] If thresholds changed: Is there a clear justification in the commit message or PR?
-- [ ] Does the docstring in `get_news_volume()` still accurately describe the boundary?
-- [ ] Is `GAUGE_SPECS` in `analysis.py` the single source of truth for metric registration?
+- [ ] Does the docstring in `get_news_volume()`/`get_price_move()`/`get_price_intraday()` still accurately describe the boundary?
+- [ ] Does `get_price_intraday` (and `briefing.py`'s intraday cache) stay an on-demand, elevated/unusual-only drill-down — not fetched eagerly for the whole watchlist in `monitor.py`?
+- [ ] Is `GAUGE_SPECS` in `analysis.py` / `PRICE_GAUGE_SPECS` in `price.py` the single source of truth for metric registration?
       (Gauge keys must not be hardcoded in `monitor.py`)
 
 ## Adding new agents

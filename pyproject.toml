@@ -13,6 +13,7 @@ dependencies = [
     "opentelemetry-sdk>=1.23.0",
     "pandas>=2.0",
     "pandas-market-calendars>=4.0",
+    "yfinance>=0.2.40",
 ]
 
 [dependency-groups]
@@ -49,6 +50,7 @@ select = ["E", "F", "I"]
 markers = [
     "e2e: end-to-end tests against the live Finnhub API (requires a real FINNHUB_API_KEY)",
     "sentiment: tests that load the real finBERT model (requires `uv sync --group sentiment`)",
+    "price: end-to-end tests against the live yfinance API (requires RUN_PRICE_E2E=1)",
 ]
 
 [tool.coverage.report]

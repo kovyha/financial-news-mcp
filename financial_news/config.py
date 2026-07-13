@@ -36,6 +36,28 @@ class AnalysisConfig:
     winsorize_k: float = 5.19
 
 
+@dataclass
+class PriceConfig:
+    baseline_days: int = 30
+    threshold_elevated: float = 2.0
+    threshold_unusual: float = 3.0
+    z_score_cap: float = 99.0
+    # Same Iglewicz & Hoaglin-derived default as [analysis]; see AnalysisConfig for
+    # the derivation. Applied two-sided here since returns can move in either
+    # direction, unlike article counts which floor at 0.
+    winsorize_k: float = 5.19
+    # Delay between consecutive per-ticker yfinance calls in monitor.py's watchlist
+    # loop. Unlike Finnhub (documented, generous per-minute quota), yfinance is an
+    # unofficial scraper of Yahoo's internal endpoints that is known to rate-limit
+    # or temporarily block IPs making rapid back-to-back requests. Must be >= 0.
+    fetch_delay_seconds: float = 1.0
+    # Bar size for get_price_intraday's today-only drill-down bars — passed straight
+    # through to yfinance's `interval` argument. Not validated against a whitelist
+    # here (yfinance's supported values can change independently of this project);
+    # an invalid value surfaces as a clear error from price.py at fetch time instead.
+    intraday_interval: str = "5m"
+
+
 _DEFAULT_MONITOR_TICKERS: list[str] = [
     "NVDA",
     "TSLA",
@@ -86,6 +108,7 @@ class EmailConfig:
 class Config:
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
+    price: PriceConfig = field(default_factory=PriceConfig)
     monitor: MonitorConfig = field(default_factory=MonitorConfig)
     briefing: BriefingConfig = field(default_factory=BriefingConfig)
     sentiment: SentimentConfig = field(default_factory=SentimentConfig)
@@ -213,6 +236,57 @@ def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
             f"config.toml [analysis] winsorize_k must be > 0, got: {winsorize_k}"
         )
 
+    price_data = data.get("price", {})
+
+    unknown = price_data.keys() - PriceConfig.__dataclass_fields__.keys()
+    if unknown:
+        raise ValueError(
+            f"config.toml [price] contains unrecognised keys: {sorted(unknown)}"
+        )
+
+    price_baseline_days = int(
+        price_data.get("baseline_days", PriceConfig.baseline_days)
+    )
+    price_threshold_elevated = float(
+        price_data.get("threshold_elevated", PriceConfig.threshold_elevated)
+    )
+    price_threshold_unusual = float(
+        price_data.get("threshold_unusual", PriceConfig.threshold_unusual)
+    )
+    price_z_score_cap = float(price_data.get("z_score_cap", PriceConfig.z_score_cap))
+    price_winsorize_k = float(price_data.get("winsorize_k", PriceConfig.winsorize_k))
+    price_fetch_delay_seconds = float(
+        price_data.get("fetch_delay_seconds", PriceConfig.fetch_delay_seconds)
+    )
+    price_intraday_interval = str(
+        price_data.get("intraday_interval", PriceConfig.intraday_interval)
+    )
+
+    if price_baseline_days <= 0:
+        raise ValueError(
+            f"config.toml [price] baseline_days must be > 0, got: {price_baseline_days}"
+        )
+    if price_threshold_elevated >= price_threshold_unusual:
+        raise ValueError(
+            f"config.toml [price] threshold_elevated ({price_threshold_elevated}) "
+            f"must be less than threshold_unusual ({price_threshold_unusual})"
+        )
+    if price_z_score_cap <= 0:
+        raise ValueError(
+            f"config.toml [price] z_score_cap must be > 0, got: {price_z_score_cap}"
+        )
+    if price_winsorize_k <= 0:
+        raise ValueError(
+            f"config.toml [price] winsorize_k must be > 0, got: {price_winsorize_k}"
+        )
+    if price_fetch_delay_seconds < 0:
+        raise ValueError(
+            "config.toml [price] fetch_delay_seconds must be >= 0, got: "
+            f"{price_fetch_delay_seconds}"
+        )
+    if not price_intraday_interval.strip():
+        raise ValueError("config.toml [price] intraday_interval must not be empty")
+
     monitor_data = data.get("monitor", {})
 
     unknown = monitor_data.keys() - MonitorConfig.__dataclass_fields__.keys()
@@ -333,6 +407,15 @@ def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
             threshold_unusual=threshold_unusual,
             z_score_cap=z_score_cap,
             winsorize_k=winsorize_k,
+        ),
+        price=PriceConfig(
+            baseline_days=price_baseline_days,
+            threshold_elevated=price_threshold_elevated,
+            threshold_unusual=price_threshold_unusual,
+            z_score_cap=price_z_score_cap,
+            winsorize_k=price_winsorize_k,
+            fetch_delay_seconds=price_fetch_delay_seconds,
+            intraday_interval=price_intraday_interval,
         ),
         monitor=MonitorConfig(tickers=tickers, snapshot_path=snapshot_path),
         briefing=BriefingConfig(

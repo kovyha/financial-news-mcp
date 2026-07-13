@@ -1,10 +1,10 @@
 # financial-news-mcp
 
-An MCP server that detects statistically unusual news activity on any stock ticker, with a multi-agent pipeline that scores sentiment, reasons over signals, and delivers a daily market briefing.
+An MCP server that detects statistically unusual news activity and price moves on any stock ticker, with a multi-agent pipeline that scores sentiment, cross-references price against news, and delivers a daily market briefing.
 
 ## Why This Exists
 
-Financial news moves markets, but not all news activity is equal. This project detects when news volume on a stock is statistically unusual — giving traders and analysts an early signal that something significant may be happening before it is widely reflected in price.
+Financial news moves markets, but not all news activity is equal. This project detects when news volume on a stock is statistically unusual, and separately whether today's price move is statistically unusual for that stock — giving traders and analysts a way to judge whether a price move looks news-driven, or whether an unusual move is happening without a matching news signal.
 
 Built on Model Context Protocol (MCP), it connects Claude directly to live financial news data and turns a natural-language question into a quantitative signal with contextual reasoning.
 
@@ -24,6 +24,10 @@ The architecture maintains an explicit boundary between two layers:
 
 **Deterministic signal layer** (`get_news_volume` MCP tool): fetches data from Finnhub, computes article counts, a 30-day exponentially weighted mean and standard deviation using pandas, and classifies the result against configurable thresholds (default: z < 2 = normal, z < 3 = elevated, z ≥ 3 = unusual). No model inference occurs here. Output is a structured, reproducible dict.
 
+A second tool, **`get_price_move`**, mirrors this signal for price: it fetches daily price history via yfinance (no API key required), computes a volatility-normalized return z-score against an EWM baseline of prior daily returns, and classifies it the same way — expressed in the same z-score units so it can be directly compared against the news-volume signal.
+
+A third tool, **`get_price_intraday`**, is a same-day attribution drill-down rather than a second detection signal: for a ticker already flagged elevated/unusual, it fetches today's intraday price bars (configurable interval, default 5-minute) so a specific timestamped headline (today's `get_news_volume` articles each carry a "time" field) can be lined up against a specific intraday move — e.g. a pre-market gap on one headline vs. an unrelated afternoon move on another.
+
 **LLM reasoning layer** (Claude, via MCP): receives that structured output as tool context and interprets what a statistically significant spike may mean — drawing on the headlines, sentiment scores, and its broader knowledge.
 
 This boundary is intentional. In any regulated or auditable environment you can demonstrate precisely what data was fetched, what was computed deterministically, and exactly where model judgement begins.
@@ -32,9 +36,9 @@ This boundary is intentional. In any regulated or auditable environment you can 
 
 | Agent | File | Trigger | What it does |
 |---|---|---|---|
-| MCP server | `server.py` | On-demand (MCP client) | Exposes `get_news_volume` and `health_check` tools |
-| Daily briefing | `briefing.py` | Daily pre-market (CI) | Scores all watchlist headlines and summaries with finBERT, filters to high-confidence signals (≥ 0.85), calls Claude to produce a plain-language briefing; emails result |
-| Daily monitor | `monitor.py` | Daily pre-market (CI) | Fetches watchlist z-scores, exports OTel gauges to Grafana Cloud |
+| MCP server | `server.py` | On-demand (MCP client) | Exposes `get_news_volume`, `get_price_move`, `get_price_intraday`, and `health_check` tools |
+| Daily briefing | `briefing.py` | Daily pre-market (CI) | Scores all watchlist headlines and summaries with finBERT, filters to high-confidence signals (≥ 0.85), calls Claude to produce a plain-language briefing that cross-references news and price-move signals; emails result |
+| Daily monitor | `monitor.py` | Daily pre-market (CI) | Fetches watchlist news and price-move z-scores, exports OTel gauges to Grafana Cloud (each signal fails independently) |
 | Diagnostic | `diagnostic.py` | On-demand | Reads error logs, calls Claude to identify root cause and propose a fix |
 
 ### Sentiment pipeline
@@ -72,7 +76,7 @@ The GitHub Actions `monitor.yaml` workflow runs daily at 12:00 UTC (8am ET, pre-
 
 - Python 3.12+
 - `uv`
-- `FINNHUB_API_KEY` environment variable
+- `FINNHUB_API_KEY` environment variable (news data; `get_price_move`'s yfinance data source needs no API key)
 
 ### Install
 

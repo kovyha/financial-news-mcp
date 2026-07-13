@@ -11,6 +11,7 @@ import pandas as pd
 import pandas_market_calendars as mcal
 
 from financial_news.config import load_config
+from financial_news.timeseries import ewma_mean_std
 
 logger = logging.getLogger(__name__)
 
@@ -129,16 +130,6 @@ def _exchange_tz(symbol: str) -> ZoneInfo:
     return mcal.get_calendar("NYSE").tz
 
 
-def _ewma_mean_std(values: list[float], span: int) -> tuple[float, float]:
-    """Return the exponentially weighted mean and std over values (adjust=True)."""
-    if not values:
-        return 0.0, 0.0
-    ewm = pd.Series(values, dtype=float).ewm(span=span, adjust=True)
-    mean = float(ewm.mean().iloc[-1])
-    std = ewm.std().iloc[-1]
-    return mean, 0.0 if pd.isna(std) else float(std)
-
-
 def _winsorize_upper(values: list[float], k: float) -> list[float]:
     """Cap upper-tail outliers in *values* at median + k * MAD.
 
@@ -220,7 +211,9 @@ def compute_volume_stats(symbol: str) -> dict:
     """Fetch news and compute volume statistics for a symbol.
 
     Returns a dict with keys: recent_count, mean, std, z_score, classification,
-    headlines, baseline_counts, headline_articles.
+    headlines, baseline_counts, headline_articles. Today's own articles/
+    recent_articles additionally carry a "time" (exchange-local HH:MM:SS) field
+    for intraday attribution against get_price_intraday's bars.
     """
     tz = _exchange_tz(symbol)
     today = datetime.now(tz).date()
@@ -253,7 +246,7 @@ def compute_volume_stats(symbol: str) -> dict:
         current += timedelta(days=1)
 
     winsorized_counts = _winsorize_upper(baseline_counts, k=WINSORIZE_K)
-    mean, std = _ewma_mean_std(winsorized_counts, span=BASELINE_DAYS)
+    mean, std = ewma_mean_std(winsorized_counts, span=BASELINE_DAYS)
 
     recent_count = len(recent)
     z_score = min(calculate_z_score(recent_count, mean, std), Z_SCORE_CAP)
@@ -267,12 +260,27 @@ def compute_volume_stats(symbol: str) -> dict:
 
     headlines = [article["headline"] for article in recent[:5]]
     recent_headlines = [article["headline"] for article in recent]
+    # "time" (exchange-local HH:MM:SS, full Finnhub precision) is intraday
+    # attribution context: it lets a specific today's headline be lined up
+    # against a specific intraday price move from get_price_intraday. Only
+    # today's articles carry it — the multi-day headline_articles window below
+    # is background narrative context, not intraday-attributable, so it keeps
+    # date-only precision.
     articles = [
-        {"headline": a["headline"], "summary": a.get("summary") or ""}
+        {
+            "headline": a["headline"],
+            "summary": a.get("summary") or "",
+            "time": datetime.fromtimestamp(a["datetime"], tz=tz).strftime("%H:%M:%S"),
+        }
         for a in recent[:5]
     ]
     recent_articles = [
-        {"headline": a["headline"], "summary": a.get("summary") or ""} for a in recent
+        {
+            "headline": a["headline"],
+            "summary": a.get("summary") or "",
+            "time": datetime.fromtimestamp(a["datetime"], tz=tz).strftime("%H:%M:%S"),
+        }
+        for a in recent
     ]
 
     # Headline context: slice of already-fetched data covering the last
