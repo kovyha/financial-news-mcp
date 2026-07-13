@@ -10,7 +10,9 @@ a no-op.
 
 Email structure (primary → secondary):
   1. One-line classification summary: Unusual: X | Elevated: Y | Normal: Z
-  2. Tickers grouped by classification
+     (a ticker counts under whichever of news/price is more severe)
+  2. Tickers grouped by classification, each showing both news and price
+     z-scores, with a divergence tag when only one signal is flagged
   3. Analyst briefing (LLM reasoning, if available)
   4. Errors, if any
 """
@@ -26,12 +28,43 @@ from financial_news.config import EmailConfig
 logger = logging.getLogger(__name__)
 
 _DIVIDER = "─" * 50
+_SEVERITY = {"normal": 0, "elevated": 1, "unusual": 2}
+
+
+def _price_classification(s: dict) -> str:
+    price = s.get("price")
+    return price.get("classification", "normal") if price else "normal"
+
+
+def _combined_classification(s: dict) -> str:
+    """The more severe of news and price classification for this ticker.
+
+    A ticker with an unusual price move but normal news volume (or vice versa)
+    must still surface as unusual — that divergence is exactly the signal this
+    project exists to catch, and a news-only count would hide it entirely.
+    """
+    news_cls = s.get("classification", "normal")
+    price_cls = _price_classification(s)
+    return news_cls if _SEVERITY[news_cls] >= _SEVERITY[price_cls] else price_cls
+
+
+def _divergence_tag(s: dict) -> str:
+    """Flag when only one of the two signals is flagged elevated/unusual."""
+    if "price" not in s:
+        return ""
+    news_flagged = s.get("classification", "normal") != "normal"
+    price_flagged = _price_classification(s) != "normal"
+    if price_flagged and not news_flagged:
+        return "  [significant price move, no matching news anomaly]"
+    if news_flagged and not price_flagged:
+        return "  [news anomaly, no matching significant price move]"
+    return ""
 
 
 def _count_by_classification(ticker_stats: list[dict]) -> dict[str, int]:
     counts: dict[str, int] = {"unusual": 0, "elevated": 0, "normal": 0}
     for s in ticker_stats:
-        key = s.get("classification", "normal")
+        key = _combined_classification(s)
         counts[key] = counts.get(key, 0) + 1
     return counts
 
@@ -73,14 +106,22 @@ def _build_body(
         ("elevated", "ELEVATED"),
         ("normal", "NORMAL"),
     ]:
-        group = [s for s in ticker_stats if s.get("classification") == classification]
+        group = [
+            s for s in ticker_stats if _combined_classification(s) == classification
+        ]
         if not group:
             continue
         lines.append(f"--- {label} ---")
         for s in group:
+            price = s.get("price")
+            price_part = (
+                f"  price_move={price['return_pct']:>+7.2%} (z={price['z_score']:.2f})"
+                if price
+                else ""
+            )
             lines.append(
-                f"  {s['ticker']:<8}  z={s['z_score']:>6.2f}"
-                f"  recent={s['recent_count']:>4}"
+                f"  {s['ticker']:<8}  z_news={s['z_score']:>6.2f}"
+                f"  recent={s['recent_count']:>4}{price_part}{_divergence_tag(s)}"
             )
         lines.append("")
 

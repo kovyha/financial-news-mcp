@@ -9,7 +9,9 @@ from financial_news.config import EmailConfig
 from financial_news.email_report import (
     _build_body,
     _build_subject,
+    _combined_classification,
     _count_by_classification,
+    _divergence_tag,
     send_run_summary,
 )
 
@@ -69,6 +71,76 @@ def test_count_by_classification_all_normal():
 def test_count_by_classification_empty():
     counts = _count_by_classification([])
     assert counts == {"unusual": 0, "elevated": 0, "normal": 0}
+
+
+# --- _combined_classification / _divergence_tag ---
+
+
+def _price_stats(classification: str = "normal") -> dict:
+    return {
+        "current_price": 100.0,
+        "previous_close": 99.0,
+        "return_pct": 0.0101,
+        "z_score": 1.0,
+        "classification": classification,
+    }
+
+
+def test_combined_classification_news_only_when_no_price():
+    s = {"classification": "elevated"}
+    assert _combined_classification(s) == "elevated"
+
+
+def test_combined_classification_price_more_severe_wins():
+    """An unusual price move with normal news must still count as unusual."""
+    s = {"classification": "normal", "price": _price_stats("unusual")}
+    assert _combined_classification(s) == "unusual"
+
+
+def test_combined_classification_news_more_severe_wins():
+    s = {"classification": "unusual", "price": _price_stats("normal")}
+    assert _combined_classification(s) == "unusual"
+
+
+def test_combined_classification_both_normal():
+    s = {"classification": "normal", "price": _price_stats("normal")}
+    assert _combined_classification(s) == "normal"
+
+
+def test_count_by_classification_counts_price_only_anomaly():
+    """The subject-line count must not hide a price-only anomaly."""
+    stats = [
+        {"ticker": "GME", "classification": "normal", "price": _price_stats("unusual")}
+    ]
+    counts = _count_by_classification(stats)
+    assert counts["unusual"] == 1
+    assert counts["normal"] == 0
+
+
+def test_divergence_tag_empty_when_no_price():
+    assert _divergence_tag({"classification": "unusual"}) == ""
+
+
+def test_divergence_tag_empty_when_both_flagged():
+    s = {"classification": "unusual", "price": _price_stats("elevated")}
+    assert _divergence_tag(s) == ""
+
+
+def test_divergence_tag_empty_when_both_normal():
+    s = {"classification": "normal", "price": _price_stats("normal")}
+    assert _divergence_tag(s) == ""
+
+
+def test_divergence_tag_price_only():
+    s = {"classification": "normal", "price": _price_stats("unusual")}
+    assert "significant price move" in _divergence_tag(s)
+    assert "no matching news anomaly" in _divergence_tag(s)
+
+
+def test_divergence_tag_news_only():
+    s = {"classification": "unusual", "price": _price_stats("normal")}
+    assert "news anomaly" in _divergence_tag(s)
+    assert "no matching significant price move" in _divergence_tag(s)
 
 
 # --- _build_subject ---
@@ -137,6 +209,59 @@ def test_body_z_score_and_count_present(sample_stats):
     body = _build_body(sample_stats, [])
     assert "4.50" in body
     assert "20" in body
+
+
+def test_body_shows_price_move_when_present():
+    stats = [
+        {
+            "ticker": "NVDA",
+            "classification": "normal",
+            "z_score": 0.5,
+            "recent_count": 3,
+            "price": _price_stats(),
+        }
+    ]
+    body = _build_body(stats, [])
+    assert "price_move=" in body
+    assert "+1.01%" in body
+    assert "z=1.00" in body
+
+
+def test_body_omits_price_move_when_absent(sample_stats):
+    body = _build_body(sample_stats, [])
+    assert "price_move=" not in body
+
+
+def test_body_groups_ticker_under_price_only_anomaly():
+    """A ticker with only a price anomaly must appear in the UNUSUAL section."""
+    stats = [
+        {
+            "ticker": "GME",
+            "classification": "normal",
+            "z_score": 0.1,
+            "recent_count": 1,
+            "price": _price_stats("unusual"),
+        }
+    ]
+    body = _build_body(stats, [])
+    unusual_idx = body.index("UNUSUAL")
+    gme_idx = body.index("GME")
+    assert unusual_idx < gme_idx
+    assert "NORMAL" not in body
+
+
+def test_body_shows_divergence_tag_for_price_only_anomaly():
+    stats = [
+        {
+            "ticker": "GME",
+            "classification": "normal",
+            "z_score": 0.1,
+            "recent_count": 1,
+            "price": _price_stats("unusual"),
+        }
+    ]
+    body = _build_body(stats, [])
+    assert "significant price move, no matching news anomaly" in body
 
 
 def test_body_briefing_text_included():
