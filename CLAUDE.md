@@ -21,8 +21,8 @@ Never move business logic (z-score math, classification thresholds, Finnhub fetc
 | File | What it does |
 |---|---|
 | [financial_news/server.py](financial_news/server.py) | MCP server, tool definitions, orchestration |
-| [financial_news/analysis.py](financial_news/analysis.py) | News-volume z-score computation and EWM baseline logic |
-| [financial_news/price.py](financial_news/price.py) | Price-move signal — volatility-normalized return z-score per ticker (via yfinance), mirroring the news-volume z-score so the two can be directly compared. Also provides today-only intraday bars (`fetch_intraday_prices`) for same-day attribution. Intentionally decoupled from `analysis.py` (no Finnhub dependency) |
+| [financial_news/analysis.py](financial_news/analysis.py) | News-volume z-score computation and EWM baseline logic. `compute_volume_stats` takes an optional `as_of_date` (default `None` = live "today" mode, unchanged) so `evaluation.py` can backtest without duplicating this math |
+| [financial_news/price.py](financial_news/price.py) | Price-move signal — volatility-normalized return z-score per ticker (via yfinance), mirroring the news-volume z-score so the two can be directly compared. Also provides today-only intraday bars (`fetch_intraday_prices`) for same-day attribution. Intentionally decoupled from `analysis.py` (no Finnhub dependency). `compute_price_stats` takes an optional `as_of_date` (default `None` = live mode, unchanged) for the same backtesting reason |
 | [financial_news/timeseries.py](financial_news/timeseries.py) | Shared EWM mean/std helper used by both `analysis.py` and `price.py` |
 | [financial_news/config.py](financial_news/config.py) | Config loader — thresholds, baseline window, logging settings |
 | [financial_news/briefing.py](financial_news/briefing.py) | Daily briefing agent — computes watchlist news and price z-scores and calls Claude (Opus 4.7) to reason over elevated/unusual tickers, cross-referencing the two signals |
@@ -31,6 +31,7 @@ Never move business logic (z-score math, classification thresholds, Finnhub fetc
 | [financial_news/diagnostic.py](financial_news/diagnostic.py) | LLM-powered diagnostic agent — reads error logs, then calls Claude (Opus 4.7) to identify root cause and propose a fix |
 | [financial_news/monitor.py](financial_news/monitor.py) | Daily monitoring agent — fetches watchlist news and price z-scores and exports OTel gauges to Grafana Cloud (independent failure handling per signal) |
 | [financial_news/snapshot.py](financial_news/snapshot.py) | Passes monitor stats to the briefing step within the same workflow run (date-keyed, atomic write) |
+| [financial_news/evaluation.py](financial_news/evaluation.py) | Baseline comparison harness — quantifies how much z-score, finBERT, and full-system LLM reasoning each contribute to detecting news-driven price moves, against a human-labeled historical dataset. See [docs/evaluation.md](docs/evaluation.md) |
 | [config.example.toml](config.example.toml) | Copy to `config.toml` to customize thresholds and logging |
 
 ## Governance docs — read these before making changes
@@ -41,6 +42,7 @@ Never move business logic (z-score math, classification thresholds, Finnhub fetc
 | [docs/SKILL.md](docs/SKILL.md) | Behavioral rules for agents — boundary constraints, validation workflow, commit guidance |
 | [docs/engineering-standards.md](docs/engineering-standards.md) | Code quality expectations (ALWAYS / PREFER / AVOID / REQUIRE) |
 | [docs/developer-infra.md](docs/developer-infra.md) | Packaging, install, test strategy, common commands |
+| [docs/evaluation.md](docs/evaluation.md) | Baseline evaluation methodology — ground-truth labeling process, caveats, how to extend the labeled set |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Canonical validation workflow — run before every PR |
 
 ## Validation — always run before proposing changes
@@ -116,5 +118,21 @@ uv run python -m financial_news.monitor
 ```
 
 The monitor runs automatically as the first step of `.github/workflows/monitor.yaml` daily at 12:00 UTC (8am ET, pre-US market open, every day including weekends). The workflow is disabled by default until secrets are configured.
+
+## Running the baseline evaluation
+
+```bash
+# Build (or refresh) the candidate pool from live Finnhub/yfinance data.
+FINNHUB_API_KEY=<key> uv run python -m financial_news.evaluation build-candidates
+
+# Label eval/candidates.json -> eval/labels.json, then run all baselines.
+FINNHUB_API_KEY=<key> ANTHROPIC_API_KEY=<key> \
+    uv run python -m financial_news.evaluation report
+```
+
+`report` requires `uv sync --group sentiment` (finBERT — used by the full system's
+article selection, not as a standalone baseline) and `ANTHROPIC_API_KEY` (one Claude
+call per labeled candidate, full-system baseline only). See [docs/evaluation.md](docs/evaluation.md)
+for methodology, ground-truth caveats, and current results.
 
 Requires Python 3.12+ and `uv`.

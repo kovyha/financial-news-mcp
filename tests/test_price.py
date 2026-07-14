@@ -1,6 +1,6 @@
 """Tests for financial_news.price."""
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from unittest.mock import MagicMock
 from zoneinfo import ZoneInfo
 
@@ -170,6 +170,123 @@ def test_compute_price_stats_excludes_today_from_baseline(monkeypatch):
     stats = price.compute_price_stats("FAKE")
     # If today's 500.0 bar leaked into the baseline it would blow up std/mean.
     assert stats["std"] < 1.0
+
+
+def _mock_price_source(
+    monkeypatch,
+    as_of_date,
+    baseline_closes: list[float],
+    current_price: float,
+    tz_name: str = "America/New_York",
+):
+    """Mock yfinance so compute_price_stats sees *baseline_closes* as the completed
+    prior days and *current_price* as the price on the day being evaluated (today
+    when as_of_date is None, as_of_date otherwise), with previous_close always
+    baseline_closes[-1] — letting the same assertions cover both live mode (via
+    fast_info) and historical mode (derived from the bars themselves).
+    """
+    tz = ZoneInfo(tz_name)
+    previous_close = baseline_closes[-1]
+    n = len(baseline_closes)
+    ticker_obj = MagicMock()
+
+    if as_of_date is None:
+        anchor = datetime.now(tz).date()
+        dates = [anchor - timedelta(days=n - i) for i in range(n)]
+        history = pd.DataFrame(
+            {"Close": baseline_closes},
+            index=pd.DatetimeIndex(
+                [pd.Timestamp(d, tz=tz) for d in dates], name="Date"
+            ),
+        )
+        fast_info = MagicMock()
+        fast_info.last_price = current_price
+        fast_info.previous_close = previous_close
+        fast_info.timezone = tz_name
+        ticker_obj.fast_info = fast_info
+    else:
+        dates = [as_of_date - timedelta(days=n - i) for i in range(n)] + [as_of_date]
+        history = pd.DataFrame(
+            {"Close": [*baseline_closes, current_price]},
+            index=pd.DatetimeIndex(
+                [pd.Timestamp(d, tz=tz) for d in dates], name="Date"
+            ),
+        )
+        ticker_obj.fast_info = MagicMock()  # must not be consulted in historical mode
+
+    ticker_obj.history.return_value = history
+    monkeypatch.setattr(price.yf, "Ticker", lambda symbol: ticker_obj)
+    return ticker_obj
+
+
+@pytest.mark.parametrize(
+    "as_of_date", [None, date(2026, 1, 15)], ids=["live", "historical"]
+)
+def test_compute_price_stats_current_and_previous_close(monkeypatch, as_of_date):
+    """Same current/previous-close resolution and return_pct in both modes."""
+    _mock_price_source(
+        monkeypatch, as_of_date, baseline_closes=[100.0] * 35, current_price=103.0
+    )
+    stats = price.compute_price_stats("FAKE", as_of_date=as_of_date)
+    assert stats["current_price"] == 103.0
+    assert stats["previous_close"] == 100.0
+    assert stats["return_pct"] == pytest.approx(0.03)
+
+
+@pytest.mark.parametrize(
+    "as_of_date", [None, date(2026, 1, 15)], ids=["live", "historical"]
+)
+def test_compute_price_stats_excludes_current_day_from_baseline(
+    monkeypatch, as_of_date
+):
+    """The day being evaluated never leaks into its own baseline, in either mode."""
+    _mock_price_source(
+        monkeypatch, as_of_date, baseline_closes=[100.0] * 30, current_price=500.0
+    )
+    stats = price.compute_price_stats("FAKE", as_of_date=as_of_date)
+    # If the 500.0 move leaked into the baseline it would blow up std/mean.
+    assert stats["std"] < 1.0
+
+
+def test_fetch_price_data_as_of_date_calls_history_with_date_range(monkeypatch):
+    ticker_obj = MagicMock()
+    ticker_obj.history.return_value = pd.DataFrame({"Close": [100.0]})
+    monkeypatch.setattr(price.yf, "Ticker", lambda symbol: ticker_obj)
+
+    as_of = date(2026, 1, 15)
+    price._fetch_price_data("FAKE", as_of_date=as_of)
+
+    expected_start = (
+        as_of - timedelta(days=price.PRICE_BASELINE_DAYS + 15)
+    ).isoformat()
+    expected_end = (as_of + timedelta(days=1)).isoformat()
+    ticker_obj.history.assert_called_once_with(
+        start=expected_start, end=expected_end, interval="1d", auto_adjust=True
+    )
+
+
+def test_fetch_price_data_as_of_date_returns_none_fast_info(monkeypatch):
+    """Historical mode has no live quote to report."""
+    ticker_obj = MagicMock()
+    ticker_obj.history.return_value = pd.DataFrame({"Close": [100.0]})
+    monkeypatch.setattr(price.yf, "Ticker", lambda symbol: ticker_obj)
+
+    _, fast_info = price._fetch_price_data("FAKE", as_of_date=date(2026, 1, 15))
+    assert fast_info is None
+
+
+def test_compute_price_stats_as_of_date_raises_when_insufficient_history(monkeypatch):
+    as_of = date(2026, 1, 15)
+    history = pd.DataFrame(
+        {"Close": [100.0]},
+        index=pd.DatetimeIndex([pd.Timestamp(as_of, tz=_ET)], name="Date"),
+    )
+    ticker_obj = MagicMock()
+    ticker_obj.history.return_value = history
+    monkeypatch.setattr(price.yf, "Ticker", lambda symbol: ticker_obj)
+
+    with pytest.raises(RuntimeError, match="Not enough price history"):
+        price.compute_price_stats("FAKE", as_of_date=as_of)
 
 
 def test_fetch_price_data_wraps_upstream_errors(monkeypatch):

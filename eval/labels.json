@@ -1,0 +1,320 @@
+[
+  {
+    "date": "2026-04-24",
+    "label": "noise",
+    "notes": "Headlines/summaries confirm this is sector spillover: \"Nvidia surged past $5T valuation as AI-driven demand and strong Intel earnings fueled a broad semiconductor rally\" \u2014 no distinct NVDA-only catalyst. Confirmed by full-set re-review.",
+    "ticker": "NVDA"
+  },
+  {
+    "date": "2026-04-30",
+    "label": "noise",
+    "notes": "No NVDA-specific story; day dominated by Meta/Alphabet/Microsoft earnings reactions and a Brent crude spike. Full-set re-review: the closest NVDA explainer still attributes the move to peers' chip disclosures, not an NVDA-originated event.",
+    "ticker": "NVDA"
+  },
+  {
+    "date": "2026-05-06",
+    "label": "ambiguous",
+    "notes": "Mixed: a real NVDA-specific item (\"NVIDIA Backs Corning to Build Optical Backbone for AI Factories,\" a multi-billion-dollar partnership) sits alongside a broad Iran-deal-hope rally lifting the whole market \u2014 can't isolate one driver. Confirmed by full-set re-review.",
+    "ticker": "NVDA"
+  },
+  {
+    "date": "2026-05-15",
+    "label": "ambiguous",
+    "notes": "Mixed: Elizabeth Warren's attack on Trump's Nvidia-linked China chip trades is NVDA-adjacent, and full-set re-review found a stronger item \u2014 \"The Great Chip Letdown: Why The Trump-Xi Summit Just Tanked NVIDIA,\" tied to dashed hopes for NVDA's China H200 sales approval \u2014 but broad macro headlines (oil, yields, inflation) dominate the same day.",
+    "ticker": "NVDA"
+  },
+  {
+    "date": "2026-06-01",
+    "label": "news_driven",
+    "notes": "Summary confirms: shares \"jumped 6.3% ... after CEO Jensen Huang's keynote at Computex in Taipei\" \u2014 a specific, dated NVDA catalyst. Confirmed by full-set re-review.",
+    "ticker": "NVDA"
+  },
+  {
+    "date": "2026-06-05",
+    "label": "ambiguous",
+    "notes": "Full-set re-review found a genuine NVDA-specific item buried around headline #90 of 126: \"Nvidia stock fell as the company came under U.S. scrutiny for a loophole that may have allowed Chinese firms to acquire Nvidia AI chips\" \u2014 competing with the dominant \"tech stocks lead market bloodbath\" rate-fear selloff that hit NVDA, TSLA, and AMD alike that day. Revised from noise after the full re-read.",
+    "ticker": "NVDA"
+  },
+  {
+    "date": "2026-04-15",
+    "label": "news_driven",
+    "notes": "Summary confirms: shares \"jumped 7.4% ... after CEO Elon Musk announced a major breakthrough for the company's future technology\" (chip/Terafab plan). Confirmed by full-set re-review.",
+    "ticker": "TSLA"
+  },
+  {
+    "date": "2026-05-15",
+    "label": "ambiguous",
+    "notes": "The proximate cause is a macro/geopolitical event (the Trump-Xi summit ending without a trade breakthrough), not a Tesla-generated or Tesla-targeted story \u2014 the same summit also moved chip stocks (\"Chip Stocks Slide After U.S.-China Summit Ends Without Major Tech Deals\") and Ford fell the same day for an unrelated reason (\"Car Wreck: Ford Falls 7%, Tesla Slides 4%\"). Tesla has real elevated China exposure (Shanghai Gigafactory, a meaningful share of deliveries), so it is not nothing, but this fails the same sector-spillover test applied elsewhere (a macro/cross-sector event, not a dated Tesla action or an analyst/regulator acting specifically on Tesla). Revised from news_driven after applying the rule consistently.",
+    "ticker": "TSLA"
+  },
+  {
+    "date": "2026-06-01",
+    "label": "news_driven",
+    "notes": "Summary confirms: \"OpenAI CEO Sam Altman announced the launch of a dedicated OpenAI Robotics division, hinting at a new rival for Tesla's own Optimus\" \u2014 a specific competitive threat. Confirmed by full-set re-review.",
+    "ticker": "TSLA"
+  },
+  {
+    "date": "2026-06-05",
+    "label": "ambiguous",
+    "notes": "Full-set re-review found real Tesla-specific items past headline #20: JPMorgan upgraded Tesla with a 228% price-target hike (\"Tesla Gets 227.6% Target Boost As JPMorgan Upgrades Rating\") \u2014 a confound, not an explanation, for a down day \u2014 plus a Tesla-specific negative (Roadster demo delay). Both sit alongside the same broad Nasdaq/rate-hike selloff that hit NVDA and AMD. Revised from noise after the full re-read.",
+    "ticker": "TSLA"
+  },
+  {
+    "date": "2026-06-29",
+    "label": "news_driven",
+    "notes": "Summary confirms two specific catalysts: \"Morgan Stanley and Barclays raised Q2 delivery estimates above 413,000 units while the NHTSA dropped the steering probe.\" Confirmed by full-set re-review.",
+    "ticker": "TSLA"
+  },
+  {
+    "date": "2026-07-02",
+    "label": "news_driven",
+    "notes": "Summary confirms an explicit sell-the-news reaction: stock fell despite delivering 480,126 vehicles, beating consensus by ~18%. Confirmed by full-set re-review.",
+    "ticker": "TSLA"
+  },
+  {
+    "date": "2026-04-30",
+    "label": "news_driven",
+    "notes": "Summary confirms: \"Meta beat Q1 expectations, but the stock fell after its AI and data center spending outlook rose as high as $145 billion\" \u2014 a direct earnings-reaction driver, reinforced by a same-day JPMorgan downgrade. Confirmed by full-set re-review.",
+    "ticker": "META"
+  },
+  {
+    "date": "2026-05-27",
+    "label": "news_driven",
+    "notes": "Summary confirms: stock rose after Meta \"announced that it is introducing subscription plans for its social media apps and its Meta AI chatbot.\" Confirmed by full-set re-review.",
+    "ticker": "META"
+  },
+  {
+    "date": "2026-06-01",
+    "label": "noise",
+    "notes": "Summary explicitly states: \"Meta shares fell sharply on Monday without a clear trigger, while retail sentiment moved up\" \u2014 a direct admission of no identifiable catalyst. Confirmed by full-set re-review (49 headlines).",
+    "ticker": "META"
+  },
+  {
+    "date": "2026-06-03",
+    "label": "news_driven",
+    "notes": "Summary confirms: shares \"jumped 3.2% in the morning session after sentiment improved following an enterprise AI product launch, and an analyst upgrade\" \u2014 notably the broader market fell that day, making META's idiosyncratic pop stronger evidence of a ticker-specific driver. Confirmed by full-set re-review.",
+    "ticker": "META"
+  },
+  {
+    "date": "2026-06-05",
+    "label": "news_driven",
+    "notes": "Strong evidence: investor backlash to a reported multi-billion-dollar AI equity raise (\"drunken sailors spending\" quote), confirmed across many dedicated selloff-explainer articles that explicitly name the equity-raise report as the proximate cause, despite a real same-day Nasdaq-wide selloff. Confirmed by full-set re-review.",
+    "ticker": "META"
+  },
+  {
+    "date": "2026-06-15",
+    "label": "noise",
+    "notes": "Broad \"stocks settle sharply higher as US-Iran peace deal spurs optimism\" rally day; full-set re-review found the only Meta-specific items that day were neutral-to-negative, supporting noise over a positive catalyst.",
+    "ticker": "META"
+  },
+  {
+    "date": "2026-06-17",
+    "label": "news_driven",
+    "notes": "Summary confirms a specific driver, corroborated by a Reuters exclusive naming the departing executive: \"the leader of its internal AI initiative is leaving the company.\" Confirmed by full-set re-review.",
+    "ticker": "META"
+  },
+  {
+    "date": "2026-07-01",
+    "label": "news_driven",
+    "notes": "Summary confirms: \"Meta surged nearly 9% after a report on its AI cloud plans\" \u2014 a new commercial cloud business announcement, with visible spillover into CoreWeave/Nebius selling off on the same news. Confirmed by full-set re-review.",
+    "ticker": "META"
+  },
+  {
+    "date": "2026-04-16",
+    "label": "noise",
+    "notes": "Summary confirms sector spillover: \"AMD stock is rallying as strong TSMC earnings trigger a sector-wide rally\" \u2014 not an AMD-specific event. Confirmed by full-set re-review; no AMD-specific catalyst found in the full 52-headline set.",
+    "ticker": "AMD"
+  },
+  {
+    "date": "2026-04-24",
+    "label": "ambiguous",
+    "notes": "Full-set re-review found a directly contradicting explainer buried past headline #20: \"AMD shares soar 12% on no company news... Intel's strong quarter is driving sharp gains in another chipmaker\" \u2014 despite a real AMD-specific D.A. Davidson upgrade to Buy the same day. Revised from news_driven after the full re-read.",
+    "ticker": "AMD"
+  },
+  {
+    "date": "2026-05-06",
+    "label": "news_driven",
+    "notes": "Summary confirms AMD's own report: \"AMD's data center revenue jumped 57%, giving investors hard evidence of demand ... as the company guided for another strong quarter,\" plus same-day analyst upgrades tied directly to the report. Confirmed by full-set re-review.",
+    "ticker": "AMD"
+  },
+  {
+    "date": "2026-06-05",
+    "label": "noise",
+    "notes": "Summary confirms explicit broad selloff: \"the AVGO earnings overhang and the stronger-than-expected jobs report combined to drive one of the broadest global chip selloffs.\" Confirmed by full-set re-review; no dated AMD-specific catalyst found.",
+    "ticker": "AMD"
+  },
+  {
+    "date": "2026-04-14",
+    "label": "news_driven",
+    "notes": "Summary confirms: shares \"jumped 4% in the afternoon session after analyst firm UBS upgraded its rating on the stock to 'Buy' from 'Neutral'\" (a double upgrade, with Goldman also acting). Confirmed by full-set re-review.",
+    "ticker": "F"
+  },
+  {
+    "date": "2026-05-06",
+    "label": "ambiguous",
+    "notes": "Genuinely mixed same-day signals: a negative \"14% Y/Y US sales decline\" headline sits alongside a positive \"$30,000 electric truck ... Model T Moment\" strategic narrative \u2014 stock rose despite the negative item. Confirmed by full-set re-review (only 16 headlines total, nothing hidden).",
+    "ticker": "F"
+  },
+  {
+    "date": "2026-05-13",
+    "label": "news_driven",
+    "notes": "Summary confirms: \"Ford's new battery-storage arm and a bullish Wall Street call are reshaping its growth story\" (new Ford Energy subsidiary + Morgan Stanley note). Confirmed by full-set re-review.",
+    "ticker": "F"
+  },
+  {
+    "date": "2026-05-14",
+    "label": "news_driven",
+    "notes": "Direct continuation of the Ford Energy narrative plus an explicit guidance hike (\"Here's What's Driving Ford's Guidance Hike\"). Confirmed by full-set re-review.",
+    "ticker": "F"
+  },
+  {
+    "date": "2026-05-15",
+    "label": "news_driven",
+    "notes": "Summary confirms a named reversal trigger: \"Ford Motor shares fell more than 7% ... pulling back after a two-day rally ... as Barclays says AI trade 'overdone.'\" Full-set re-review found a same-day macro overlay (CPI at 3.8%, broad rate-hike panic) worth noting, but the named Barclays action keeps this news_driven.",
+    "ticker": "F"
+  },
+  {
+    "date": "2026-05-22",
+    "label": "news_driven",
+    "notes": "Continued reaction to the same Ford AI/energy narrative (\"Wall Street Wakes Up to Its AI Play\"), reinforced by a same-day BlueOval SK joint-venture restructuring. Confirmed by full-set re-review.",
+    "ticker": "F"
+  },
+  {
+    "date": "2026-07-06",
+    "label": "news_driven",
+    "notes": "Summary confirms a new, named long-term Micron-Ford memory supply agreement, repeated across roughly ten separate headlines. Confirmed by full-set re-review.",
+    "ticker": "F"
+  },
+  {
+    "date": "2026-05-08",
+    "label": "noise",
+    "notes": "No BAC-specific negative story in headlines or summaries; unrelated items (Arm forecast reset, GTA6 pricing, M&A hire). Confirmed by full-set re-review (21 headlines).",
+    "ticker": "BAC"
+  },
+  {
+    "date": "2026-06-04",
+    "label": "news_driven",
+    "notes": "Summary confirms a new product launch: \"BofA plans to launch real-time cross-border payments,\" expanding transaction banking. Confirmed by full-set re-review.",
+    "ticker": "BAC"
+  },
+  {
+    "date": "2026-07-08",
+    "label": "news_driven",
+    "notes": "Summary confirms: \"On June 30, Oppenheimer downgraded its rating on Bank of America ... from Outperform to Perform.\" Confirmed by full-set re-review.",
+    "ticker": "BAC"
+  },
+  {
+    "date": "2026-04-22",
+    "label": "news_driven",
+    "notes": "Summary reveals a specific catalyst previously hidden in the headline: shares rose \"as traders latch onto the company's tongue-in-cheek trade-in promotion.\" Confirmed by full-set re-review.",
+    "ticker": "GME"
+  },
+  {
+    "date": "2026-05-01",
+    "label": "news_driven",
+    "notes": "Summary confirms: \"GameStop has been building a stake in eBay's shares and could submit an offer later this month, the Wall Street Journal reported\" \u2014 major, clearly identified news. Confirmed by full-set re-review.",
+    "ticker": "GME"
+  },
+  {
+    "date": "2026-05-04",
+    "label": "news_driven",
+    "notes": "Direct continuation: \"GameStop stock fell after Michael Burry sold his full stake after Ryan Cohen's $55.5 billion eBay acquisition bid\" plus an evasive CEO interview. Confirmed by full-set re-review; GME-specific coverage dominates the 86-headline set despite interspersed Iran/oil macro items.",
+    "ticker": "GME"
+  },
+  {
+    "date": "2026-06-03",
+    "label": "news_driven",
+    "notes": "Summary confirms Q1 earnings: \"net income of $389.6 million ... GameStop on Tuesday reported its highest quarterly net income on record\" plus a new $2B buyback. Confirmed by full-set re-review.",
+    "ticker": "GME"
+  },
+  {
+    "date": "2026-06-26",
+    "label": "news_driven",
+    "notes": "Summary confirms a specific guidance raise: FY26 adjusted EBITDA outlook lifted to $600M+ vs $345.4M in FY25, in a company release. Confirmed by full-set re-review.",
+    "ticker": "GME"
+  },
+  {
+    "date": "2026-04-20",
+    "label": "news_driven",
+    "notes": "Summary confirms: shares \"up 10% ... climbing from $2.78 to $3.07\" on a specific contract win and investor outreach. Confirmed by full-set re-review.",
+    "ticker": "PLUG"
+  },
+  {
+    "date": "2026-04-29",
+    "label": "ambiguous",
+    "notes": "Mixed: explicit sector spillover (\"Fuel Cell Stocks Erupt: Bloom Energy Surges 23% ... lifting Plug Power\") sits alongside a genuine PLUG-specific item (\"Clear Street Maintains Buy on Plug Power, Raises Price Target to $3.5\") \u2014 can't isolate one driver. Confirmed by full-set re-review (only 9 headlines total, nothing hidden).",
+    "ticker": "PLUG"
+  },
+  {
+    "date": "2026-05-11",
+    "label": "news_driven",
+    "notes": "Summary confirms PLUG's own report: \"Plug Power beats Q1 2026 estimates with $163.5M revenue and a narrower loss.\" Confirmed by full-set re-review.",
+    "ticker": "PLUG"
+  },
+  {
+    "date": "2026-05-21",
+    "label": "ambiguous",
+    "notes": "Directly contradictory signal: the dedicated \"Why Plug Power Stock Soared Today\" article states \"the company had nothing to report,\" despite a same-day UK hydrogen-project win (\"Barrow win\") headline \u2014 the source itself couldn't identify a driver. Confirmed by full-set re-review (only 6 headlines total, nothing hidden).",
+    "ticker": "PLUG"
+  },
+  {
+    "date": "2026-05-06",
+    "label": "noise",
+    "notes": "Summary confirms explicit sector move: \"Shares in Exxon, Chevron, and Occidental Petroleum tumble on signs that the Trump administration is close to agreeing a peace deal\" (oil prices, not XOM-specific). Confirmed by full-set re-review.",
+    "ticker": "XOM"
+  },
+  {
+    "date": "2026-05-11",
+    "label": "noise",
+    "notes": "No single clear driver; Bernstein actually lowered its price target ($195\u2192$182) same day despite maintaining Outperform \u2014 not a clean positive catalyst. Confirmed by full-set re-review (14 headlines).",
+    "ticker": "XOM"
+  },
+  {
+    "date": "2026-05-15",
+    "label": "noise",
+    "notes": "Oil-price-driven macro headlines (Iran-linked trading commentary, inflation-fear bond selloff); no XOM-specific news item. Confirmed by full-set re-review; a liability-lawsuit-cleared item was already visible and isn't a plausible driver of a 4% pop.",
+    "ticker": "XOM"
+  },
+  {
+    "date": "2026-05-20",
+    "label": "noise",
+    "notes": "Summary confirms explicit sector move: \"a number of stocks jumped ... after crude oil pushed back above $100 a barrel\", repeated verbatim across nine different oil-services names that day, none of them XOM. Confirmed by full-set re-review.",
+    "ticker": "XOM"
+  },
+  {
+    "date": "2026-06-15",
+    "label": "noise",
+    "notes": "Summary confirms explicit sector move: \"Exxon, Chevron Lead Energy Stocks Sell-off as Crude Prices Sink 5%\" on the US-Iran peace deal. Full-set re-review found one XOM-specific item (Woodside denying takeover-bid speculation) but it's directionally ambiguous and swamped by the oil-crash narrative.",
+    "ticker": "XOM"
+  },
+  {
+    "date": "2026-07-07",
+    "label": "news_driven",
+    "notes": "Full-set re-review found a same-day SEC 8-K filing \u2014 \"ExxonMobil Announces Changes In Liquids Prices To Affect Q2 Upstream Results By $3.5B-$3.9B\" \u2014 paired with \"XOM Stock Posts Best Day In Over Five Months,\" a dated, quantified, ticker-specific guidance update the press explicitly credits for the move. Revised from ambiguous after the full re-read.",
+    "ticker": "XOM"
+  },
+  {
+    "date": "2026-04-21",
+    "label": "news_driven",
+    "notes": "Summary confirms: \"UnitedHealth climbed ... as investors cheered its plans to invest in artificial intelligence\" alongside a Q1 earnings beat, with peer insurers explicitly rising in sympathy with UNH. Confirmed by full-set re-review.",
+    "ticker": "UNH"
+  },
+  {
+    "date": "2026-05-26",
+    "label": "ambiguous",
+    "notes": "Small move; summary states \"the Dow gave back its opening gains, with healthcare stocks a big drag\" \u2014 reads as sector-wide weakness. Confirmed by full-set re-review; the one UNH-named item (Optum Rx transparency shift) is stale, referencing a May 11 announcement, not new news that day.",
+    "ticker": "UNH"
+  },
+  {
+    "date": "2026-06-04",
+    "label": "news_driven",
+    "notes": "Summary confirms: shares \"jumped 5.4% ... after Bank of America upgraded the company to 'Buy' ... and the company announced an increased quarterly dividend,\" reinforced by a separate Morgan Stanley target raise. Confirmed by full-set re-review.",
+    "ticker": "UNH"
+  },
+  {
+    "date": "2026-06-17",
+    "label": "news_driven",
+    "notes": "Multiple named commentators (Cramer, Sosnoff, Black) explicitly discussing a meme-stock rally reversal and selling pressure specific to SPCX post-IPO. Confirmed by full-set re-review.",
+    "ticker": "SPCX"
+  }
+]

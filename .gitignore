@@ -22,3 +22,6 @@ htmlcov/
 
 # Log files
 logs/
+
+# Regenerable evaluation cache (run `build-candidates` to recreate; see docs/evaluation.md)
+eval/candidates.json

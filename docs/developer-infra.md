@@ -21,8 +21,9 @@ For the canonical contributor workflow and validation commands, see `CONTRIBUTIN
   - `sentiment.py` — finBERT sentiment scoring; deterministic preprocessing for the briefing agent. Requires the `sentiment` dep group (`uv sync --group sentiment`).
   - `diagnostic.py` — LLM-powered diagnostic agent; reads error logs then calls Claude to identify root cause and propose a fix.
   - `monitor.py` — daily monitoring agent; pushes news z-score/count/EWM mean and price z-score/return/EWM mean as OTel gauges to Grafana Cloud.
-  - `price.py` — deterministic price-move signal: a volatility-normalized return z-score per ticker (via yfinance), mirroring `analysis.py`'s news-volume z-score so the two can be directly compared. Also provides `fetch_intraday_prices`, a same-day-only attribution drill-down (not part of the anomaly-detection signal), fetched on demand only for tickers already flagged elevated/unusual.
+  - `price.py` — deterministic price-move signal: a volatility-normalized return z-score per ticker (via yfinance), mirroring `analysis.py`'s news-volume z-score so the two can be directly compared. Also provides `fetch_intraday_prices`, a same-day-only attribution drill-down (not part of the anomaly-detection signal), fetched on demand only for tickers already flagged elevated/unusual. Both `compute_price_stats` and `analysis.compute_volume_stats` take an optional `as_of_date` param (default `None` = live/unchanged behavior) so the evaluation harness can compute the same deterministic signals against a historical date without duplicating the math.
   - `timeseries.py` — shared EWM mean/std helper used by both `analysis.py` and `price.py`.
+  - `evaluation.py` — baseline comparison harness: quantifies how much price z-score alone, news-volume z-score alone, name-mention text-matching alone, and the full system (finBERT + LLM reasoning) each contribute to detecting news-driven price moves, against a human-labeled historical dataset. See `docs/evaluation.md`.
   - `__init__.py` — package initialization.
 - `tests/` — pytest test files and fixtures:
   - `test_calculate_z_score.py` — unit tests for z-score calculation.
@@ -36,6 +37,7 @@ For the canonical contributor workflow and validation commands, see `CONTRIBUTIN
   - `test_logging.py` — tests for logging and rollover behavior.
   - `test_diagnostic.py` — tests for the diagnostic agent.
   - `test_monitor.py` — tests for the monitoring agent (run(), gauge values for both news and price, OTel wiring, independent failure handling).
+  - `test_evaluation.py` — tests for the baseline evaluation harness: candidate pool building, labels/candidates JSON I/O, all four baseline predictors (price z-score, news z-score, name-mention, full system with mocked Anthropic client), `precision_recall_f1`, report generation, and the CLI.
   - `conftest.py` — pytest configuration and fixtures.
 - `docs/` — documentation for iterations and developer notes.
 - `.github/workflows/` — GitHub Actions CI/CD workflows:
@@ -92,6 +94,7 @@ python -m pip install -r requirements.txt  # if you maintain one
 - **E2E deterministic tests:** `test_e2e_deterministic.py` runs against the live Finnhub API; skipped in CI unless a real `FINNHUB_API_KEY` is provided (`uv run pytest -m e2e`).
 - **Price-move signal tests:** `test_price.py` (z-score/winsorize unit tests, `compute_price_stats` with mocked yfinance) and `test_e2e_price.py` (live yfinance, requires `RUN_PRICE_E2E=1`, `uv run pytest -m price`).
 - **Monitor agent tests:** `test_monitor.py` covers run() success/failure/partial for both news and price signals independently, gauge value correctness, OTel provider wiring, and GAUGE_SPECS/PRICE_GAUGE_SPECS contracts.
+- **Evaluation harness tests:** `test_evaluation.py` covers candidate pool building (mocked Finnhub/yfinance via `as_of_date`), labels/candidates JSON I/O round-trips, `precision_recall_f1` edge cases, each of the four baseline predictors (price z-score, news z-score, name-mention text-matching, and the full system with a mocked Anthropic client), report generation, and the CLI. No live API calls in CI.
 - **Test fixtures:** `conftest.py` sets `FINNHUB_API_KEY` to a harmless default for test imports and ensures test runners can find the package.
 
 ## Packaging rationale

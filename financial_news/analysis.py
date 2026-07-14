@@ -207,8 +207,16 @@ def calculate_z_score(recent_count: int, mean: float, std: float) -> float:
     return (recent_count - mean) / std
 
 
-def compute_volume_stats(symbol: str) -> dict:
+def compute_volume_stats(symbol: str, as_of_date: date | None = None) -> dict:
     """Fetch news and compute volume statistics for a symbol.
+
+    as_of_date=None (default): live mode — "today" is resolved from the
+    exchange-local clock, matching the get_news_volume MCP tool's existing
+    behavior exactly. as_of_date given: historical backtesting mode — the same
+    z-score math computed as of that past date instead. fetch_news already takes
+    explicit from/to dates, so this needs no separate historical fetch path; it
+    exists so financial_news.evaluation can build a labeled historical dataset
+    without duplicating this function's math in a parallel module.
 
     Returns a dict with keys: recent_count, mean, std, z_score, classification,
     headlines, baseline_counts, headline_articles. Today's own articles/
@@ -216,7 +224,7 @@ def compute_volume_stats(symbol: str) -> dict:
     for intraday attribution against get_price_intraday's bars.
     """
     tz = _exchange_tz(symbol)
-    today = datetime.now(tz).date()
+    today = as_of_date if as_of_date is not None else datetime.now(tz).date()
     yesterday = today - timedelta(days=1)
     baseline_start = today - timedelta(days=BASELINE_DAYS)
     headline_start = today - timedelta(days=HEADLINE_DAYS)

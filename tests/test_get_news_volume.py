@@ -104,6 +104,46 @@ def test_compute_volume_stats_winsorizes_baseline_before_ewm(monkeypatch):
     assert calls[0] == (stats["baseline_counts"], analysis.WINSORIZE_K)
 
 
+@pytest.mark.parametrize(
+    "as_of_date", [None, date(2026, 1, 15)], ids=["live", "historical"]
+)
+def test_compute_volume_stats_resolves_today_from_as_of_date(monkeypatch, as_of_date):
+    """as_of_date, when given, replaces the live exchange-local 'today'; when
+    omitted, 'today' is the live exchange-local date — same code path either way.
+    """
+    monkeypatch.setattr(analysis, "_exchange_tz", lambda s: _ET)
+    calls = []
+
+    def fake_fetch_news(symbol, from_date, to_date):
+        calls.append((from_date, to_date))
+        return []
+
+    monkeypatch.setattr(analysis, "fetch_news", fake_fetch_news)
+
+    analysis.compute_volume_stats("FAKE", as_of_date=as_of_date)
+
+    expected_today = as_of_date or datetime.now(_ET).date()
+    recent_from, recent_to = calls[0]
+    assert recent_from == expected_today
+    assert recent_to == expected_today + timedelta(days=1)
+
+
+@pytest.mark.parametrize(
+    "as_of_date", [None, date(2026, 1, 15)], ids=["live", "historical"]
+)
+def test_compute_volume_stats_recent_articles_from_the_resolved_today(
+    monkeypatch, as_of_date
+):
+    monkeypatch.setattr(analysis, "_exchange_tz", lambda s: _ET)
+    today = as_of_date or datetime.now(_ET).date()
+    ts = int(datetime.combine(today, datetime.min.time(), tzinfo=_ET).timestamp())
+    articles = [{"datetime": ts, "headline": "h", "summary": ""}]
+    monkeypatch.setattr(analysis, "fetch_news", lambda *_, **__: articles)
+
+    stats = analysis.compute_volume_stats("FAKE", as_of_date=as_of_date)
+    assert stats["recent_count"] == 1
+
+
 # ── get_news_volume ───────────────────────────────────────────────────────────
 
 

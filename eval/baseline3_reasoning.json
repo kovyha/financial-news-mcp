@@ -1,0 +1,303 @@
+[
+  {
+    "ticker": "NVDA",
+    "date": "2026-04-24",
+    "true_label": "noise",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: Intel's blowout earnings sparked a broad AI chip rally lifting NVDA past $5T market cap, with unusual news volume (z=3.28) and multiple positive catalysts directly tied to the name."
+  },
+  {
+    "ticker": "NVDA",
+    "date": "2026-04-30",
+    "true_label": "noise",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: Multiple NVDA-specific negative catalysts hit simultaneously (Google/Amazon custom-chip competition from earnings, Seaport analyst warning on hyperscaler chips, Huawei China share gains), and NVDA fell sharply while the broader Nasdaq/S&P closed at records, ruling out a sector-wide or index move."
+  },
+  {
+    "ticker": "NVDA",
+    "date": "2026-06-01",
+    "true_label": "news_driven",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: NVDA-specific catalyst (Jensen Huang's Computex keynote with two major announcements) drove heavy volume and a sympathetic ARM all-time high, consistent with the +6.26% move."
+  },
+  {
+    "ticker": "TSLA",
+    "date": "2026-04-15",
+    "true_label": "news_driven",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: Multiple headlines confirm the 7-8% move was catalyzed by Tesla's AI5 chip tape-out announcement plus a rare analyst upgrade, matching the magnitude and direction of the price move."
+  },
+  {
+    "ticker": "TSLA",
+    "date": "2026-06-01",
+    "true_label": "news_driven",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: Multiple concurrent negative catalysts (OpenAI robotics competition to Optimus, Italy registrations down 23.5%, SpaceX IPO dilution/valuation concerns, and macro risk-off) align with elevated news volume and explain the -4.57% move."
+  },
+  {
+    "ticker": "TSLA",
+    "date": "2026-06-29",
+    "true_label": "news_driven",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: Multiple TSLA-specific catalysts (Morgan Stanley/Barclays delivery upgrades ahead of Q2 deliveries, FSD rollout to older cars, SpaceX ties) coincided with elevated news volume and analyst commentary, and TSLA notably led the Mag7 rebound rather than simply matching a sector move."
+  },
+  {
+    "ticker": "TSLA",
+    "date": "2026-07-02",
+    "true_label": "news_driven",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: Massive news volume (z=3.95) with coherent \"sell-the-news\" narrative after a hot pre-report run and profitability concerns overriding the delivery beat explains the -7.49% move, not noise."
+  },
+  {
+    "ticker": "META",
+    "date": "2026-04-30",
+    "true_label": "news_driven",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: The -8.55% move directly follows Meta's Q1 earnings where a $145B AI capex outlook, JPMorgan downgrade, and layoff commentary overshadowed an EPS beat, with broader tech rallying that day ruling out a sector-wide confounder."
+  },
+  {
+    "ticker": "META",
+    "date": "2026-05-27",
+    "true_label": "news_driven",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: Meta announced new paid subscription plans for its social apps and AI chatbot, a concrete monetization catalyst that multiple outlets directly tied to the stock's rise despite a weak tech tape."
+  },
+  {
+    "ticker": "META",
+    "date": "2026-06-01",
+    "true_label": "noise",
+    "predicted": "noise",
+    "reasoning": "VERDICT: noise | REASON: News volume is normal with no material negative catalyst specific to META\u2014headlines are largely positive or generic\u2014while the -3.63\u03c3 drop against an up-market lacks a clear driver, suggesting idiosyncratic noise or positioning-driven selling."
+  },
+  {
+    "ticker": "META",
+    "date": "2026-06-03",
+    "true_label": "news_driven",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: META was the sole Magnificent Seven gainer on a broadly down tape, supported by specific positive catalysts (Jensen Huang's \"nobody uses AI better\" praise, an enterprise AI product launch, analyst upgrade, and partial EU Marketplace win), making the +4.24% move idiosyncratic rather than sector-driven noise."
+  },
+  {
+    "ticker": "META",
+    "date": "2026-06-05",
+    "true_label": "news_driven",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: A specific FT report of a major Meta equity raise for AI capex directly explains the -5.5% move, even though a broader tech selloff amplified it."
+  },
+  {
+    "ticker": "META",
+    "date": "2026-06-15",
+    "true_label": "noise",
+    "predicted": "noise",
+    "reasoning": "VERDICT: noise | REASON: The +4.77% move aligns with a broad market/tech rally on the US-Iran peace deal (Nasdaq +3%, Mag 7 catch-up bid) rather than META-specific catalysts, making this a sector/macro-driven move mislabeled as single-name news."
+  },
+  {
+    "ticker": "META",
+    "date": "2026-06-17",
+    "true_label": "news_driven",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: The -5.44% drop coincides with a specific negative META catalyst (departure of the head of its internal AI initiative) plus hawkish Fed backdrop, materially exceeding the broad market's ~1% decline."
+  },
+  {
+    "ticker": "META",
+    "date": "2026-07-01",
+    "true_label": "news_driven",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: Bloomberg report that Meta is launching a cloud business to monetize excess AI compute triggered the ~10% rally, corroborated by simultaneous selloffs in competing neocloud names (CoreWeave, Nebius) and extreme news volume."
+  },
+  {
+    "ticker": "AMD",
+    "date": "2026-04-16",
+    "true_label": "noise",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: AMD broke out ~8% on heavy volume driven by TSMC's blowout AI-demand guidance, a Bernstein price target hike to $265, a Meta accelerator deal, and a France exascale supercomputer partnership\u2014clear stock-specific catalysts corroborated by the unusual news volume."
+  },
+  {
+    "ticker": "AMD",
+    "date": "2026-05-06",
+    "true_label": "news_driven",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: AMD's +18.6% move aligns directly with a blowout Q1 earnings beat, raised Q2 guidance, 57% data center growth, and a coordinated wave of analyst upgrades, all confirmed by extreme news volume."
+  },
+  {
+    "ticker": "AMD",
+    "date": "2026-06-05",
+    "true_label": "noise",
+    "predicted": "noise",
+    "reasoning": "VERDICT: noise | REASON: The -10.86% move reflects a sector-wide chip selloff triggered by AVGO's soft AI guidance and a hot jobs report rather than AMD-specific news, making this a sector move mislabeled as single-name idiosyncratic."
+  },
+  {
+    "ticker": "F",
+    "date": "2026-04-14",
+    "true_label": "news_driven",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: A clear UBS upgrade to Buy with $15 target catalyzed the move, corroborated by unusually high news volume (z=4.17) and multiple headlines directly attributing the ~4% gain to the upgrade."
+  },
+  {
+    "ticker": "F",
+    "date": "2026-05-13",
+    "true_label": "news_driven",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: Multiple concurrent catalysts\u2014Morgan Stanley's bullish call on Ford's CATL-backed energy storage business, launch of a Ford Energy battery storage subsidiary, and a Q1 beat\u2014align with the elevated news volume and directly explain the ~13% single-name surge."
+  },
+  {
+    "ticker": "F",
+    "date": "2026-05-14",
+    "true_label": "news_driven",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: The +6.71% move aligns with specific, high-conviction Ford catalysts (Morgan Stanley's $10B energy-storage valuation call and AI/data-center power pivot narrative) corroborated by elevated news volume, far exceeding the modest broad-market gain."
+  },
+  {
+    "ticker": "F",
+    "date": "2026-05-15",
+    "true_label": "news_driven",
+    "predicted": "noise",
+    "reasoning": "VERDICT: noise | REASON: The 7% drop reverses a prior 21% two-day speculative AI/battery rally with no new negative company-specific catalyst, indicating mean-reversion amid a broad macro de-risking rather than news-driven selling."
+  },
+  {
+    "ticker": "F",
+    "date": "2026-05-22",
+    "true_label": "news_driven",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: Ford substantially outperformed Detroit peers (GM +2%, STLA +1%) on specific positive catalysts about its AI transformation, ruling out a sector-wide move and matching the strongly positive sentiment."
+  },
+  {
+    "ticker": "F",
+    "date": "2026-07-06",
+    "true_label": "news_driven",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: Elevated news volume with a concrete positive catalyst (Micron long-term memory supply agreement) plus a Zacks Buy upgrade plausibly explains the +3.52% move despite offsetting negative sales/recall headlines."
+  },
+  {
+    "ticker": "BAC",
+    "date": "2026-05-08",
+    "true_label": "noise",
+    "predicted": "noise",
+    "reasoning": "VERDICT: noise | REASON: No BAC-specific negative catalyst appears in the headlines; the -2.73% move with normal news volume and a macro sentiment warning suggests a broader risk-off/sector move rather than single-name news."
+  },
+  {
+    "ticker": "BAC",
+    "date": "2026-06-04",
+    "true_label": "news_driven",
+    "predicted": "noise",
+    "reasoning": "VERDICT: noise | REASON: The move coincides with a broad financial-sector rally (NYSE Financial Index +2.2%) and normal news volume, with BAC-specific headlines (cross-border payments expansion) too minor to justify a 2.61-sigma idiosyncratic move."
+  },
+  {
+    "ticker": "BAC",
+    "date": "2026-07-08",
+    "true_label": "news_driven",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: An Oppenheimer downgrade of BAC (and broader US bank stocks) on valuation concerns provides a specific single-name catalyst consistent with the ~2.6% drop."
+  },
+  {
+    "ticker": "GME",
+    "date": "2026-04-22",
+    "true_label": "news_driven",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: A GME-specific headline directly attributes the ~4% intraday move to a viral trade-in promotion, and the meme-stock/short-squeeze backdrop in Avis supports retail-driven single-name buying rather than noise."
+  },
+  {
+    "ticker": "GME",
+    "date": "2026-05-01",
+    "true_label": "news_driven",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: The +6.33% move aligns directly with a major WSJ scoop that GameStop is preparing a takeover bid for eBay, corroborated by elevated news volume and multiple high-confidence positive headlines."
+  },
+  {
+    "ticker": "GME",
+    "date": "2026-05-04",
+    "true_label": "news_driven",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: The -10% move is directly tied to GME-specific catalysts, namely a poorly-received $56B unsolicited eBay bid, a widely-panned Ryan Cohen interview, and Michael Burry exiting his stake, all confirmed by an extreme news-volume z-score."
+  },
+  {
+    "ticker": "GME",
+    "date": "2026-06-03",
+    "true_label": "news_driven",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: GME posted record Q1 profit and authorized a $2B buyback, with news volume z=3.59 and multiple headlines directly tying the ~6% move to earnings, against a weak broader tape."
+  },
+  {
+    "ticker": "GME",
+    "date": "2026-06-26",
+    "true_label": "news_driven",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: GameStop issued a specific FY26 guidance nearly doubling EBITDA to $600M+ and reaffirmed the eBay takeover bid, a clear company-specific catalyst directly explaining the +3.57% move."
+  },
+  {
+    "ticker": "PLUG",
+    "date": "2026-04-20",
+    "true_label": "news_driven",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: The 15.83% move is directly attributed to a specific contract win and investor outreach with confirmatory positive headlines and unusually high news volume, consistent with a company-specific catalyst rather than noise."
+  },
+  {
+    "ticker": "PLUG",
+    "date": "2026-05-11",
+    "true_label": "news_driven",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: The +12.82% move coincides with an extreme news-volume spike (z=6.06) driven by a Q1 earnings beat showing 22% revenue growth and major margin improvement, directly explaining the rally."
+  },
+  {
+    "ticker": "XOM",
+    "date": "2026-05-06",
+    "true_label": "noise",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: Headlines explicitly attribute Exxon's drop to plunging oil prices on U.S.-Iran peace deal progress, directly explaining the -4% move."
+  },
+  {
+    "ticker": "XOM",
+    "date": "2026-05-11",
+    "true_label": "noise",
+    "predicted": "noise",
+    "reasoning": "VERDICT: noise | REASON: News volume is normal with only stale Q1-earnings recaps, a peer (BP) upgrade, and a price-target cut on XOM itself\u2014nothing idiosyncratic to justify a +3.5% move, suggesting a sector/oil-macro move rather than XOM-specific news."
+  },
+  {
+    "ticker": "XOM",
+    "date": "2026-05-15",
+    "true_label": "noise",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: XOM's +4% move aligns with a sector-wide energy rally on oil near $109/WTI above $100, favorable headlines (jury win, high-oil-price tailwinds), while broader indices fell, indicating a genuine commodity/sector-driven catalyst rather than noise."
+  },
+  {
+    "ticker": "XOM",
+    "date": "2026-05-20",
+    "true_label": "noise",
+    "predicted": "noise",
+    "reasoning": "VERDICT: noise | REASON: Headlines are broadly positive for XOM (LNG expansion, Guyana pipe orders, oil above $100 boosting energy peers) with market up strongly, so a -3.86% idiosyncratic drop contradicts the news backdrop and likely reflects mean reversion or sector rotation noise."
+  },
+  {
+    "ticker": "XOM",
+    "date": "2026-06-15",
+    "true_label": "noise",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: A U.S.-Iran deal reopening the Strait of Hormuz caused a ~5% crude oil plunge, directly driving XOM and energy peers sharply lower while the broader market rallied."
+  },
+  {
+    "ticker": "XOM",
+    "date": "2026-07-07",
+    "true_label": "news_driven",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: Exxon pre-announced a $3.5B jump in Q2 upstream income to the highest since 2022 alongside Iran-driven oil price spikes, providing a clear firm-specific catalyst for the +3.85% move."
+  },
+  {
+    "ticker": "UNH",
+    "date": "2026-04-21",
+    "true_label": "news_driven",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: UNH beat Q1 EPS ($7.23 vs $6.58), raised FY2026 guidance, and news volume was extreme (z=15.86), directly explaining the +6.96% idiosyncratic move against a weak tape."
+  },
+  {
+    "ticker": "UNH",
+    "date": "2026-06-04",
+    "true_label": "news_driven",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: BofA upgrade to Buy with $450 target, a 5% dividend hike, and Morgan Stanley bullish note on softer medical cost trends directly explain the +5.16% move, corroborated by high news-volume z-score and sector peers rallying."
+  },
+  {
+    "ticker": "SPCX",
+    "date": "2026-06-17",
+    "true_label": "news_driven",
+    "predicted": "news_driven",
+    "reasoning": "VERDICT: news_driven | REASON: Multiple high-profile bearish calls (Sosnoff, Cramer, Gary Black) explicitly warning the post-IPO meme rally is over align directly with the -9.26% drop in this newly-IPO'd, momentum-driven name."
+  }
+]

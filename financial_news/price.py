@@ -10,7 +10,7 @@ timezone.
 
 import logging
 import time
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -109,16 +109,37 @@ def calculate_price_z_score(return_pct: float, mean: float, std: float) -> float
     return (return_pct - mean) / std
 
 
-def _fetch_price_data(symbol: str) -> tuple[pd.DataFrame, object]:
-    """Fetch daily price history and live quote info for *symbol* via yfinance."""
-    logger.debug("fetch_price_data symbol=%s", symbol)
+def _fetch_price_data(
+    symbol: str, as_of_date: date | None = None
+) -> tuple[pd.DataFrame, object | None]:
+    """Fetch daily price history via yfinance for *symbol*.
+
+    as_of_date=None (default, live mode): period-based history plus fast_info for
+    the live quote. as_of_date given (historical backtesting mode, used by
+    financial_news.evaluation): history fetched over an explicit date range ending
+    at as_of_date instead; there is no live quote for a past date, so fast_info is
+    None and compute_price_stats resolves current/previous close from the bars
+    themselves.
+    """
+    logger.debug("fetch_price_data symbol=%s as_of_date=%s", symbol, as_of_date)
     start = time.time()
     try:
         ticker = yf.Ticker(symbol)
-        history = ticker.history(
-            period=f"{PRICE_BASELINE_DAYS + 15}d", interval="1d", auto_adjust=True
-        )
-        fast_info = ticker.fast_info
+        if as_of_date is None:
+            history = ticker.history(
+                period=f"{PRICE_BASELINE_DAYS + 15}d", interval="1d", auto_adjust=True
+            )
+            fast_info = ticker.fast_info
+        else:
+            fetch_start = as_of_date - timedelta(days=PRICE_BASELINE_DAYS + 15)
+            fetch_end = as_of_date + timedelta(days=1)
+            history = ticker.history(
+                start=fetch_start.isoformat(),
+                end=fetch_end.isoformat(),
+                interval="1d",
+                auto_adjust=True,
+            )
+            fast_info = None
     except Exception as exc:
         elapsed = time.time() - start
         logger.exception(
@@ -141,23 +162,43 @@ def _fetch_price_data(symbol: str) -> tuple[pd.DataFrame, object]:
     return history, fast_info
 
 
-def compute_price_stats(symbol: str) -> dict:
+def compute_price_stats(symbol: str, as_of_date: date | None = None) -> dict:
     """Fetch price history and compute return statistics for a symbol.
+
+    as_of_date=None (default): live mode — "today" and the current/previous close
+    come from the live quote (fast_info), matching the get_price_move MCP tool's
+    existing behavior exactly. as_of_date given: historical backtesting mode — the
+    same z-score math computed as of that past date instead, resolving current/
+    previous close from daily bars rather than a live quote. This parameter exists
+    so financial_news.evaluation can build a labeled historical dataset without
+    duplicating this function's math in a parallel module.
 
     Returns a dict with keys: symbol, current_price, previous_close, return_pct,
     mean, std, z_score, classification, baseline_days.
     """
-    history, fast_info = _fetch_price_data(symbol)
+    history, fast_info = _fetch_price_data(symbol, as_of_date)
+    closes = history["Close"]
 
-    current_price = float(fast_info.last_price)
-    previous_close = float(fast_info.previous_close)
+    if as_of_date is None:
+        tz = ZoneInfo(fast_info.timezone)
+        today = datetime.now(tz).date()
+        current_price = float(fast_info.last_price)
+        previous_close = float(fast_info.previous_close)
+    else:
+        today = as_of_date
+        on_or_before = closes[closes.index.date <= today]
+        if len(on_or_before) < 2:
+            raise RuntimeError(
+                f"Not enough price history for {symbol} as of {today.isoformat()} "
+                "to compute a previous close."
+            )
+        current_price = float(on_or_before.iloc[-1])
+        previous_close = float(on_or_before.iloc[-2])
+
     return_pct = (
         (current_price - previous_close) / previous_close if previous_close else 0.0
     )
 
-    tz = ZoneInfo(fast_info.timezone)
-    today = datetime.now(tz).date()
-    closes = history["Close"]
     completed = closes[closes.index.date < today]
 
     baseline_returns = completed.pct_change().dropna().tolist()[-PRICE_BASELINE_DAYS:]

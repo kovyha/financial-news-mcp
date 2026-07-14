@@ -138,7 +138,8 @@ Coverage threshold is enforced at 95%. See [CONTRIBUTING.md](CONTRIBUTING.md) fo
 ## Future enhancements
 
 - Link the news signal to a kdb-based trading and order-flow view so traders can see news activity alongside positioning, execution, and immediate market reaction.
-- Add real-time signal and algo attribution to measure whether news-volume and sentiment signals are actually improving trading outcomes.
+- Add real-time signal and algo attribution to measure whether news-volume and sentiment signals are actually improving trading outcomes. (A retrospective baseline comparison against historical data now exists — see [docs/evaluation.md](docs/evaluation.md) — but it doesn't yet measure live trading outcomes.)
+- Grow the human-labeled evaluation set beyond the current small pilot to tighten the confidence interval on baseline comparisons.
 
 ## Docs
 
@@ -146,5 +147,6 @@ Coverage threshold is enforced at 95%. See [CONTRIBUTING.md](CONTRIBUTING.md) fo
 - Engineering standards: [docs/engineering-standards.md](docs/engineering-standards.md)
 - Developer infra (packaging, install, test strategy): [docs/developer-infra.md](docs/developer-infra.md)
 - Z-score iteration notes: [docs/z_score_iteration.md](docs/z_score_iteration.md)
+- Baseline evaluation methodology and results: [docs/evaluation.md](docs/evaluation.md)
 - Changelog: [CHANGELOG.md](CHANGELOG.md)
 - Contributing: [CONTRIBUTING.md](CONTRIBUTING.md)
