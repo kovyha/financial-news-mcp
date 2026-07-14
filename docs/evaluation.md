@@ -7,20 +7,30 @@ Audience: Developers
 This project's detection pipeline layers a price-move z-score, a news-volume
 z-score, finBERT headline sentiment, and Claude reasoning over all of the above
 (`briefing.py`). `financial_news/evaluation.py` quantifies how much each layer
-actually contributes by comparing four predictors of whether a flagged price move
-was truly news-driven against a human-labeled historical dataset:
+actually contributes by comparing three independent predictors of whether a
+flagged price move was truly news-driven against a human-labeled historical
+dataset:
 
-1. **price z-score only** (`predict_zscore_only`) — price z-score magnitude alone.
-2. **news-volume z-score only** (`predict_news_zscore_only`) — a coincident burst
+1. **news-volume z-score only** (`predict_news_zscore_only`) — a coincident burst
    of ticker-tagged article-count volume, independent of price and of what the
    coverage actually says.
-3. **name-mention fraction only** (`predict_name_mention`) — fraction of that
+2. **name-mention fraction only** (`predict_name_mention`) — fraction of that
    day's headlines that explicitly name the company (vs. merely appearing in its
    Finnhub feed), via a hand-curated alias table (`_TICKER_ALIASES`). Cheap,
    deterministic, no ML.
-4. **full system** (`predict_full_system`) — finBERT-selected headlines + both
+3. **full system** (`predict_full_system`) — finBERT-selected headlines + both
    z-scores + a Claude judgment call, mirroring `briefing.py`'s cross-referencing
    but scoped to a single historical day instead of a live watchlist briefing.
+
+**Price z-score magnitude is deliberately not a fourth baseline.** The candidate
+pool itself is selected on this same statistic (see "Candidate pool" below) —
+every candidate already clears `threshold_elevated` by construction, so testing
+that same threshold against that same pool is circular: 100% recall and precision
+equal to the pool's raw base rate, not a measurement of anything. `run_report()`
+instead reports `predict_zscore_only` only as a **sensitivity check** at the
+stricter `threshold_unusual` cut — "if we tightened our own alert threshold, what
+would we trade" — a real, useful finding, but a different question than the three
+baselines above, so it's kept out of the comparison table (see Results below).
 
 A finBERT-sentiment-only baseline was tried first and dropped — see "Baselines
 considered and rejected" below for why, and for two further explorations (combining
@@ -123,8 +133,6 @@ and `_print_report` renders a plain comparison table.
 
 | Baseline | Precision | Recall | F1 | Accuracy | tp / fp / fn / tn |
 |---|---|---|---|---|---|
-| price z-score (θ=2.0, trivial gate) | 0.721 | 1.000 | 0.838 | 0.721 | 31 / 12 / 0 / 0 |
-| price z-score (θ=3.0) | 0.929 | 0.419 | 0.578 | 0.558 | 13 / 1 / 18 / 11 |
 | news-volume z-score (θ=2.0) | 0.833 | 0.645 | 0.727 | 0.651 | 20 / 4 / 11 / 8 |
 | news-volume z-score (θ=3.0) | 0.867 | 0.419 | 0.565 | 0.535 | 13 / 2 / 18 / 10 |
 | name-mention (min_fraction=0.25) | 0.789 | 0.968 | 0.870 | 0.791 | 30 / 8 / 1 / 4 |
@@ -132,12 +140,20 @@ and `_print_report` renders a plain comparison table.
 | name-mention (min_fraction=0.50) | 1.000 | 0.548 | 0.708 | 0.674 | 17 / 0 / 14 / 12 |
 | full system | 0.829 | 0.935 | 0.879 | 0.814 | 29 / 6 / 2 / 6 |
 
+Not in the comparison above — **price z-score sensitivity check** (not an
+independent baseline; see Overview): at θ=2.0 (`threshold_elevated`, the pool's own
+selection cut) every candidate trivially passes — precision 0.721 (the pool's raw
+base rate), recall 1.000, tp/fp/fn/tn = 31/12/0/0 — a tautology, not a result.
+Tightening to θ=3.0 (`threshold_unusual`) trades that away: precision 0.929, recall
+0.419, F1 0.578, accuracy 0.558, tp/fp/fn/tn = 13/1/18/11. In other words, raising
+this project's own alert threshold from elevated to unusual would buy real
+specificity (0% → 92% correct noise calls among candidates that clear it) at severe
+recall cost (missing more than half of real stories) — a legitimate finding about
+tuning `config.toml`'s `threshold_elevated`/`threshold_unusual`, not a peer
+comparison to the three baselines above.
+
 **Reading these numbers:**
 
-- **Price z-score magnitude alone has a real but narrow tradeoff.** Raising the
-  threshold from 2.0 to 3.0 buys real specificity (0% → 92% correct noise calls) at
-  severe recall cost (100% → 42%, missing most real stories). No single threshold
-  does well on both axes.
 - **News-volume z-score is a genuinely informative, independent signal** — unlike
   finBERT sentiment (see below), a coincident spike in ticker-tagged article *count*
   does separate the classes (news_driven candidates average z≈4.2 vs noise's z≈1.7)
@@ -162,7 +178,7 @@ and `_print_report` renders a plain comparison table.
 - **The full system is the only baseline that's simultaneously strong on both
   axes without a hand-picked threshold.** It reaches 93.5% recall while still
   correctly flagging half of pure-noise days (6/12), with no threshold to tune — the
-  three deterministic baselines above only reach comparable performance at one
+  two deterministic baselines above only reach comparable performance at one
   specific point on their own precision/recall curve, chosen with the benefit of
   hindsight on this exact sample.
 

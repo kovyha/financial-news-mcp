@@ -31,7 +31,7 @@ Never move business logic (z-score math, classification thresholds, Finnhub fetc
 | [financial_news/diagnostic.py](financial_news/diagnostic.py) | LLM-powered diagnostic agent — reads error logs, then calls Claude (Opus 4.7) to identify root cause and propose a fix |
 | [financial_news/monitor.py](financial_news/monitor.py) | Daily monitoring agent — fetches watchlist news and price z-scores and exports OTel gauges to Grafana Cloud (independent failure handling per signal) |
 | [financial_news/snapshot.py](financial_news/snapshot.py) | Passes monitor stats to the briefing step within the same workflow run (date-keyed, atomic write) |
-| [financial_news/evaluation.py](financial_news/evaluation.py) | Baseline comparison harness — quantifies how much z-score, finBERT, and full-system LLM reasoning each contribute to detecting news-driven price moves, against a human-labeled historical dataset. See [docs/evaluation.md](docs/evaluation.md) |
+| [financial_news/evaluation.py](financial_news/evaluation.py) | Baseline comparison harness — quantifies how much news-volume z-score, name-mention text-matching, and full-system LLM reasoning each contribute to detecting news-driven price moves, against a human-labeled historical dataset. Price z-score is reported separately as a threshold-sensitivity check only, not a peer baseline (the candidate pool is itself selected on that statistic, so evaluating it at the same cut would be circular). See [docs/evaluation.md](docs/evaluation.md) |
 | [config.example.toml](config.example.toml) | Copy to `config.toml` to customize thresholds and logging |
 
 ## Governance docs — read these before making changes

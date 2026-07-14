@@ -3,18 +3,30 @@
 Builds a labeled historical dataset of price-move days already flagged
 elevated/unusual by compute_price_stats (via its as_of_date parameter — see
 financial_news.price/financial_news.analysis; this module adds no parallel
-historical-stats implementation), then compares four predictors of whether each
-flagged move was actually news-driven ("real move") or not ("noise") against
-human-confirmed ground truth:
+historical-stats implementation), then compares three independent predictors of
+whether each flagged move was actually news-driven ("real move") or not ("noise")
+against human-confirmed ground truth:
 
-1. price z-score only  — price z-score magnitude alone (predict_zscore_only)
-2. news-volume z-score only — coincident article-count burst, independent of
+1. news-volume z-score only — coincident article-count burst, independent of
    price and of what the coverage says (predict_news_zscore_only)
-3. name-mention fraction only — fraction of that day's headlines that explicitly
+2. name-mention fraction only — fraction of that day's headlines that explicitly
    name the company, vs. merely appearing in its Finnhub feed (predict_name_mention)
-4. full system — finBERT selection + both z-scores + LLM reasoning
+3. full system — finBERT selection + both z-scores + LLM reasoning
    (predict_full_system), mirroring briefing.py's cross-referencing but scoped to
    a single historical candidate day instead of a live watchlist briefing
+
+Price z-score magnitude (predict_zscore_only) is deliberately NOT a fourth
+baseline here: the candidate pool itself is selected by
+compute_price_stats(...).classification in (elevated, unusual), i.e. |price
+z-score| >= cfg.price.threshold_elevated. Every candidate already clears that
+bar by construction, so testing the same threshold against the same pool is
+circular (100% recall, precision == the pool's raw base rate) — it measures the
+pool definition, not the signal. What run_report() DOES report for
+predict_zscore_only is a sensitivity check at the stricter threshold_unusual cut
+only: does tightening the pool's own selection threshold trade recall for
+precision. That's a real, useful finding (see docs/evaluation.md), but it answers
+a different question than the three baselines above and is reported separately
+rather than folded into the same comparison table.
 
 A finBERT-sentiment-only baseline was tried and dropped: sentiment polarity
 (positive/negative/confidence) measures whether news reads good or bad, not
@@ -214,10 +226,12 @@ def unlabeled_candidates(
 
 
 def predict_zscore_only(candidate: dict, threshold: float) -> bool:
-    """Baseline 1: predict 'real move' iff the price z-score magnitude alone
-    clears *threshold*. All candidates are already elevated/unusual (|z| >= the
-    configured elevated threshold), so this tests whether magnitude *beyond* that
-    initial gate further separates news-driven moves from noise.
+    """Predict 'real move' iff the price z-score magnitude alone clears
+    *threshold*. NOT one of the three independent baselines (see module
+    docstring) — the candidate pool is itself selected on this same statistic at
+    threshold_elevated, so evaluating at threshold_elevated is circular. Used by
+    run_report() only as a sensitivity check at the stricter threshold_unusual
+    cut, reported separately from the baseline comparison table.
     """
     return abs(candidate["price"]["z_score"]) >= threshold
 
@@ -395,25 +409,30 @@ def run_report(
     candidates: list[dict],
     labels: dict[str, Label],
     cfg: Config,
-    zscore_thresholds: list[float] | None = None,
+    price_zscore_sensitivity_thresholds: list[float] | None = None,
     news_zscore_thresholds: list[float] | None = None,
     name_mention_thresholds: list[float] | None = None,
 ) -> dict:
-    """Run all baselines against confirmed labels and return a report dict."""
+    """Run the three baselines plus the price-z-score sensitivity check against
+    confirmed labels and return a report dict.
+    """
     rows = _labeled_rows(candidates, labels)
     if not rows:
         raise ValueError("No confirmed (non-ambiguous) labels to evaluate against.")
     y_true = [label.label == "news_driven" for _, label in rows]
 
-    price_thresholds = zscore_thresholds or [
-        cfg.price.threshold_elevated,
+    # Sensitivity check only, not a baseline — see predict_zscore_only docstring.
+    # threshold_elevated is excluded: every candidate already clears it by pool
+    # construction, so evaluating there is circular (100% recall, precision ==
+    # the pool's base rate).
+    sensitivity_thresholds = price_zscore_sensitivity_thresholds or [
         cfg.price.threshold_unusual,
     ]
-    zscore_results = {
+    price_zscore_sensitivity = {
         threshold: precision_recall_f1(
             y_true, [predict_zscore_only(c, threshold) for c, _ in rows]
         )
-        for threshold in price_thresholds
+        for threshold in sensitivity_thresholds
     }
 
     news_thresholds = news_zscore_thresholds or [
@@ -452,7 +471,7 @@ def run_report(
 
     return {
         "n_labeled": len(rows),
-        "zscore_only": zscore_results,
+        "price_zscore_sensitivity": price_zscore_sensitivity,
         "news_zscore_only": news_zscore_results,
         "name_mention": name_mention_results,
         "full_system": system_result,
@@ -465,14 +484,6 @@ def _print_report(report: dict) -> None:
     print("=" * 60)
     print(f"BASELINE COMPARISON — n={report['n_labeled']} labeled candidates")
     print("=" * 60)
-
-    print("\nBaseline: price z-score only")
-    for threshold, result in report["zscore_only"].items():
-        print(
-            f"  threshold={threshold:.1f}  precision={result['precision']:.2f}"
-            f" recall={result['recall']:.2f} f1={result['f1']:.2f}"
-            f" accuracy={result['accuracy']:.2f}"
-        )
 
     print("\nBaseline: news-volume z-score only")
     for threshold, result in report["news_zscore_only"].items():
@@ -497,6 +508,19 @@ def _print_report(report: dict) -> None:
         f" f1={r['f1']:.2f} accuracy={r['accuracy']:.2f}"
     )
     print("=" * 60)
+
+    print(
+        "\nSensitivity check (NOT an independent baseline — all candidates already"
+        "\nclear threshold_elevated by pool construction; this only tests"
+        "\ntightening the pool's own selection cut to threshold_unusual):"
+    )
+    print("  price z-score threshold")
+    for threshold, result in report["price_zscore_sensitivity"].items():
+        print(
+            f"  threshold={threshold:.1f}  precision={result['precision']:.2f}"
+            f" recall={result['recall']:.2f} f1={result['f1']:.2f}"
+            f" accuracy={result['accuracy']:.2f}"
+        )
     print()
 
 

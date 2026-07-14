@@ -491,6 +491,29 @@ def test_run_report_combines_all_baselines(monkeypatch):
     assert report["full_system_reasoning"] == ["reasoning text"]
 
 
+def test_run_report_price_zscore_sensitivity_excludes_threshold_elevated(
+    monkeypatch,
+):
+    """threshold_elevated is the pool's own selection cut — every candidate
+    already clears it, so evaluating there would be circular. Only
+    threshold_unusual should appear by default.
+    """
+    candidates = [_make_candidate(ticker="NVDA", day="2026-01-15", price_z=3.5)]
+    labels = {
+        "NVDA:2026-01-15": evaluation.Label(
+            ticker="NVDA", date="2026-01-15", label="news_driven"
+        )
+    }
+    cfg = _fake_config()
+    monkeypatch.setattr(
+        evaluation, "predict_full_system", lambda c, cfg: (True, "reasoning text")
+    )
+
+    report = evaluation.run_report(candidates, labels, cfg)
+
+    assert set(report["price_zscore_sensitivity"]) == {cfg.price.threshold_unusual}
+
+
 # ── _print_report / main ─────────────────────────────────────────────────────
 
 
@@ -508,7 +531,7 @@ def _sample_report() -> dict:
     }
     return {
         "n_labeled": 1,
-        "zscore_only": {3.0: metrics},
+        "price_zscore_sensitivity": {3.0: metrics},
         "news_zscore_only": {2.0: metrics},
         "name_mention": {0.5: metrics},
         "full_system": metrics,
@@ -520,10 +543,11 @@ def test_print_report_includes_all_baselines(capsys):
     evaluation._print_report(_sample_report())
     out = capsys.readouterr().out
     assert "BASELINE COMPARISON" in out
-    assert "price z-score only" in out
     assert "news-volume z-score only" in out
     assert "name-mention fraction only" in out
     assert "Full system" in out
+    assert "Sensitivity check" in out
+    assert "NOT an independent baseline" in out
 
 
 def test_main_build_candidates_writes_and_prints_count(monkeypatch, capsys):
