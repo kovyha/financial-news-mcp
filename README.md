@@ -12,7 +12,7 @@ Built on Model Context Protocol (MCP), it connects Claude directly to live finan
 
 Ask Claude: "Any unusual news activity on HSBC today?"
 
-Claude responds with something like: "Yes, HSBC is showing significant unusual news volume today. Z-score: 3.1. Article count is 3.4x the recent average. Likely driver: [reasoning based on the headlines and sentiment signals]."
+Claude responds with something like: "Yes, HSBC is showing significant unusual news volume today. Z-score: 3.1. Article count is 3.4x the recent average. Likely driver: [reasoning based on the headlines, article summaries, and sentiment signals]."
 
 Every morning before the US market opens, the daily briefing agent scans the watchlist, scores every headline and article summary with finBERT sentiment analysis, and uses Claude to write a concise briefing covering notable tickers, likely drivers, and cross-watchlist themes.
 
@@ -28,7 +28,7 @@ A second tool, **`get_price_move`**, mirrors this signal for price: it fetches d
 
 A third tool, **`get_price_intraday`**, is a same-day attribution drill-down rather than a second detection signal: for a ticker already flagged elevated/unusual, it fetches today's intraday price bars (configurable interval, default 5-minute) so a specific timestamped headline (today's `get_news_volume` articles each carry a "time" field) can be lined up against a specific intraday move — e.g. a pre-market gap on one headline vs. an unrelated afternoon move on another.
 
-**LLM reasoning layer** (Claude, via MCP): receives that structured output as tool context and interprets what a statistically significant spike may mean — drawing on the headlines, sentiment scores, and its broader knowledge.
+**LLM reasoning layer** (Claude, via MCP): receives that structured output as tool context and interprets what a statistically significant spike may mean — drawing on the headlines, article summaries, sentiment scores, and its broader knowledge.
 
 This boundary is intentional. In any regulated or auditable environment you can demonstrate precisely what data was fetched, what was computed deterministically, and exactly where model judgement begins.
 
@@ -39,7 +39,7 @@ This boundary is intentional. In any regulated or auditable environment you can 
 | MCP server | `server.py` | On-demand (MCP client) | Exposes `get_news_volume`, `get_price_move`, `get_price_intraday`, and `health_check` tools |
 | Daily briefing | `briefing.py` | Daily pre-market (CI) | Scores all watchlist headlines and summaries with finBERT, filters to high-confidence signals (≥ 0.85), calls Claude to produce a plain-language briefing that cross-references news and price-move signals; emails result |
 | Daily monitor | `monitor.py` | Daily pre-market (CI) | Fetches watchlist news and price-move z-scores, exports OTel gauges to Grafana Cloud (each signal fails independently) |
-| Diagnostic | `diagnostic.py` | On-demand | Reads error logs, calls Claude to identify root cause and propose a fix |
+| Diagnostic | `diagnostic.py` | On-demand, or automatically on CI failure (monitor.yaml) | Reads error logs, calls Claude to identify root cause and propose a fix |
 
 ### Sentiment pipeline
 
@@ -69,6 +69,7 @@ The GitHub Actions `monitor.yaml` workflow runs daily at 12:00 UTC (8am ET, pre-
 
 1. **Monitor step** — fetches z-scores, exports to Grafana Cloud, writes a snapshot
 2. **Briefing step** — reads the snapshot, runs finBERT sentiment, calls Claude, sends email
+3. **Diagnostic step** (on failure of either step above) — reads error logs, calls Claude to identify root cause and propose a fix
 
 ## Setup
 

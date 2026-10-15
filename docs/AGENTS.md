@@ -83,7 +83,7 @@ and produces structured review output for a human to assess and post.
 
 ### Monitor
 
-**Purpose:** Runs daily after US market close. Fetches news volume stats and price-move
+**Purpose:** Runs daily pre-US market open. Fetches news volume stats and price-move
 stats for a configured ticker watchlist, then pushes z-score, recent count, and EWM mean
 (for both signals) as OpenTelemetry gauges to Grafana Cloud via OTLP. On failure, triggers
 the Diagnostic agent automatically.
@@ -92,7 +92,7 @@ The monitor is the first step of `.github/workflows/monitor.yaml`; the Briefing 
 runs as the second step of the same job (sharing the runner and `/tmp`).
 
 **Triggers:**
-1. **Scheduled (automatic):** Daily at 21:00 UTC (Mon–Fri), via `.github/workflows/monitor.yaml`.
+1. **Scheduled (automatic):** Daily at 12:00 UTC (8am ET, pre-market, every day including weekends), via `.github/workflows/monitor.yaml`.
    Disabled by default until secrets (`FINNHUB_API_KEY`, `GRAFANA_CLOUD_OTLP_ENDPOINT`,
    `GRAFANA_CLOUD_BASIC_AUTH_HEADER`) are configured in GitHub Actions.
 2. **Manual:** `workflow_dispatch` on the `monitor.yaml` workflow (set `run_briefing: false`

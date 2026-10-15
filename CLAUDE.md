@@ -1,6 +1,6 @@
 # financial-news-mcp
 
-An MCP server that detects statistically unusual news volume and price moves on any stock ticker, so Claude can reason about whether a price move looks news-driven. The deterministic signal layer (z-score computation via pandas EWM) feeds Claude as structured context; Claude then reasons over the signals and headlines.
+An MCP server that detects statistically unusual news volume and price moves on any stock ticker, so Claude can reason about whether a price move looks news-driven. The deterministic signal layer (z-score computation via pandas EWM) feeds Claude as structured context; Claude then reasons over the signals, headlines, and article summaries.
 
 ## What this project is
 
