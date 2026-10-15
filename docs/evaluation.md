@@ -113,6 +113,10 @@ FINNHUB_API_KEY=<key> uv run python -m financial_news.evaluation build-candidate
 # 3. Run all baselines against the confirmed labels and print the comparison.
 FINNHUB_API_KEY=<key> ANTHROPIC_API_KEY=<key> \
     uv run python -m financial_news.evaluation report
+
+# 4. (Optional) component ablation of the full system — see "Component ablation".
+FINNHUB_API_KEY=<key> ANTHROPIC_API_KEY=<key> \
+    uv run python -m financial_news.evaluation ablate
 ```
 
 `report` requires `uv sync --group sentiment` (finBERT — used by the full system's
@@ -167,8 +171,9 @@ comparison to the three baselines above.
   threshold sweep was chosen after already seeing the aggregate class means
   (noise≈0.30, news_driven≈0.51), so 0.33 landing well isn't a blind result; (b) at
   N=43 a one- or two-candidate swing changes the ranking; (c) the two approaches
-  make *different* mistakes — of the 12 candidates where they disagree, name-mention
-  is wrong-but-system-right on 4, system-wrong-but-name-mention-right on 5, both
+  make *different* mistakes — of the 12 candidates where at least one is wrong,
+  they disagree on 9 (name-mention wrong-but-system-right on 4,
+  system-wrong-but-name-mention-right on 5; exact McNemar p = 1.0) and are both
   wrong on 3 — meaning they capture partially complementary signal rather than one
   subsuming the other. An OR-vote (either flags real) reaches perfect recall
   (1.000) at the cost of precision (0.795); an AND-vote (both must agree) reaches
@@ -184,6 +189,97 @@ comparison to the three baselines above.
 
 Full per-candidate reasoning from the full system (`predict_full_system`'s Claude
 output for all 43 scored rows) is saved in `eval/baseline3_reasoning.json` for audit.
+
+## Component ablation
+
+`run_ablation` (CLI: `ablate`) breaks the full system into its three components and
+scores each combination against the same 43 labeled rows:
+
+- **Z** — the news-volume z-score (and its classification) in the prompt.
+- **F** — finBERT scoring + `select_articles` selection, with `[label score]` tags.
+- **L** — Claude's judgment (`predict_full_system`).
+
+The price-move z-score and raw % move stay in **every** LLM prompt. They can't be
+ablated meaningfully: the candidate pool is selected on price z, so every arm is
+price-gated by construction.
+
+| Arm | finBERT | news z in prompt | Claude | How it's produced |
+|---|---|---|---|---|
+| Z+F+L (full system) | ✓ | ✓ | ✓ | Stored verdicts, `eval/baseline3_reasoning.json` |
+| Z+L | ✗ (most recent `max_articles` headlines, no tags) | ✓ | ✓ | Stored verdicts, `eval/finbert_ablation.json` |
+| F+L | ✓ | ✗ | ✓ | `predict_full_system(include_news_zscore=False)` |
+| L alone | ✗ | ✗ | ✓ | `predict_full_system(use_finbert=False, include_news_zscore=False)` |
+| Z+F (no LLM) | ✓ | n/a | ✗ | `predict_news_zscore_with_sentiment` |
+| Z alone | — | — | ✗ | `predict_news_zscore_only` (the existing baseline), for comparison with Z+F |
+
+Every arm is compared with Z+F+L by an exact McNemar test (`mcnemar_exact`). That
+test uses only the rows where exactly one of the two arms is right. At N=43 it's
+the honest way to read a one- or two-verdict difference.
+
+**Why stored verdicts are reused.** `predict_full_system` doesn't set a
+temperature, so verdicts could in principle vary between identical runs. They
+didn't here. The with-finBERT arm of the run that produced
+`eval/finbert_ablation.json` and the earlier `eval/baseline3_reasoning.json` are
+two independent Z+F+L runs, and they agree on all 43 verdicts. Both arms default to
+a system prompt byte-identical to the one behind the stored runs
+(`_judge_system_prompt()`, enforced by a test). On that basis, `ablate` reuses the
+stored Z+F+L and Z+L verdicts and calls Claude only for the two new arms (2 × 43
+calls). It refuses to run if a stored file is missing any labeled row. This shows
+the full system's verdicts are stable; it doesn't show the other arms are.
+
+**The Z+F rule.** A day is called news-driven if news z ≥ θ **and** at least one
+finBERT-selected headline is non-neutral with score ≥ `confidence_threshold`. This
+is one reasonable rule, defined after the fact, not a tuned optimum. It's swept at
+the same θ values as Z alone so the two can be compared directly.
+
+### Results
+
+| Arm | Precision | Recall | F1 | Accuracy | tp / fp / fn / tn | vs Z+F+L (arm-only right / full-only right, p) |
+|---|---|---|---|---|---|---|
+| Z+F+L (full system) | 0.829 | 0.935 | 0.879 | 0.814 | 29 / 6 / 2 / 6 | — |
+| Z+L | 0.784 | 0.935 | 0.853 | 0.767 | 29 / 8 / 2 / 4 | 0 / 2, p = 0.50 |
+| F+L | 0.824 | 0.903 | 0.862 | 0.791 | 28 / 6 / 3 / 6 | 0 / 1, p = 1.00 |
+| L alone | 0.778 | 0.903 | 0.836 | 0.744 | 28 / 8 / 3 / 4 | 0 / 3, p = 0.25 |
+| Z+F (θ=2.0) | 0.833 | 0.645 | 0.727 | 0.651 | 20 / 4 / 11 / 8 | 4 / 11, p = 0.12 |
+| Z alone (θ=2.0) | 0.833 | 0.645 | 0.727 | 0.651 | 20 / 4 / 11 / 8 | 4 / 11, p = 0.12 |
+| Z+F (θ=3.0) | 0.867 | 0.419 | 0.565 | 0.535 | 13 / 2 / 18 / 10 | 5 / 17, p = 0.017 |
+| Z alone (θ=3.0) | 0.867 | 0.419 | 0.565 | 0.535 | 13 / 2 / 18 / 10 | 5 / 17, p = 0.017 |
+
+Run on 2026-10-02. All 86 fresh Claude responses (F+L and L alone) parsed, so no
+verdict fell back to the unparseable → noise default. Per-row verdicts and reasoning
+for every arm are in `eval/ablation.json`.
+
+**Reading these numbers:**
+
+- **No ablation of an input to Claude is distinguishable from the full system.**
+  Removing finBERT (Z+L), the news z-score (F+L) or both (L alone) changes 2, 1 and
+  3 of 43 verdicts respectively, all p ≥ 0.25. Every changed verdict is a full-system
+  win, so the direction consistently favours keeping both inputs. But at N=43 that
+  is suggestive at most. Most of the full system's performance comes from Claude
+  reading the headlines, given the price move.
+- **What L alone gets wrong is the label definition's edge case.** Two of its three
+  extra errors are XOM sector-wide oil moves (2026-05-11, 2026-05-20) that it calls
+  news_driven, even though its own reasoning names a "sector-wide crude shock." The
+  labeling rule counts sector moves as noise. Both days had normal news volume
+  (z = 0.10 and 1.29), and every arm that has *either* the news z-score (Z+L) *or*
+  finBERT's selection and tags (F+L) gets them right. So either input seems to be
+  enough to steer Claude away from a sector move. The full system's reasoning on
+  05-11 cites "news volume is normal" directly. The third is
+  a missed BAC story (2026-07-08). F+L's single change is a missed GME story
+  (2026-04-22).
+
+- **finBERT adds nothing measurable, with or without the LLM.** Without Claude,
+  Z+F produced exactly the same verdicts as Z alone at both thresholds (0 of 43
+  changed). Every day that clears the news-z threshold already has at least one
+  confidently non-neutral headline, so the finBERT gate never vetoes anything.
+  With Claude, removing finBERT (Z+L) changed 2 of 43 verdicts, both noise days
+  wrongly flipped to news_driven, but p = 0.50 can't be told apart from chance.
+  This agrees with "finBERT sentiment alone" below: sentiment polarity carries no
+  signal for this task.
+- **The LLM's advantage over news z alone is only clearly significant at the
+  stricter threshold.** At θ=3.0 the full system is right on 17 rows where news z
+  is wrong, against 5 the other way (p = 0.017). At θ=2.0 the gap (11 vs 4,
+  p = 0.12) is suggestive but not significant at N=43.
 
 ## Baselines considered and rejected
 
@@ -213,9 +309,47 @@ does sentiment become informative once you first filter to headlines that actual
 name the company? No — conditioned on the named-only subset, the fraction that also
 scores confidently non-neutral showed the same null result (noise mean 0.47 vs
 news_driven mean 0.48). This confirms the failure isn't attribution-shaped at all:
-sentiment measures an axis (good/bad news) that's orthogonal to the axis being
-predicted (real/fake news) even once you know the headline is on-topic. A negative
-earnings miss is just as much `news_driven` as a positive earnings beat.
+sentiment *polarity on its own* measures an axis (good/bad news) that's orthogonal
+to the axis being predicted (real/fake news) even once you know the headline is
+on-topic. A negative earnings miss is just as much `news_driven` as a positive
+earnings beat. The one exception is when polarity is measured *relative to the move's
+direction*; see the next item.
+
+**Exploratory, not confirmed: does the tone match the move's direction?** Polarity
+on its own is uninformative, but *signed against the return* it may not be. If a
+company-specific story drives a move, its coverage should read the same way the
+price moved: good news on up days, bad news on down days. The hypothesis was tested
+post hoc on the pilot's 43 scored rows. For each day, take the headlines that name
+the company (`_headline_mentions_company`), keep those finBERT scores as
+positive/negative with confidence ≥ `confidence_threshold` (0.85), and compute the
+share that matches the direction of `return_pct`.
+
+- **Separation:** news_driven days average 0.79 and noise days 0.45. AUC is 0.85
+  (bootstrap 95% CI 0.72–0.95), above news-volume z (0.73) and below name-mention
+  fraction (0.90). Over all headlines rather than only those naming the company, the
+  AUC is just 0.66, with a CI that includes 0.5.
+- **Not name-mention in disguise:** the correlation with name-mention fraction is
+  only r = 0.35. On the 23 rows below the median name-mention fraction, where
+  name-mention has the least to go on, the AUC is 0.90 (12 news_driven / 11 noise).
+- **Robustness:** leaving out one ticker at a time keeps the AUC between 0.81 and
+  0.88. Confidence cut-offs from 0.5 to 0.85 give 0.82–0.85; at 0.95 it drops to 0.60
+  because too few headlines qualify.
+- **As a classifier,** "agreement ≥ 0.5" (a natural cut, not tuned) scores precision
+  0.82, recall 0.87, F1 0.84, accuracy 0.77, close to the full system's F1 0.88 with
+  no LLM call.
+
+**Why this is a hypothesis, not a result.** It was formed after looking at these 43
+rows, two variants were tried, and the variant reported is the one that won. The
+labeling rule also partly judges direction ("a ticker-specific item that
+contradicts the move's direction doesn't get credited"), so there's overlap with
+how the labels were drawn. It also shows only that the signal separates the
+classes, not that it would improve the full system, which already sees per-headline
+finBERT tags. Confirming it needs four steps:
+
+1. Fix the rule, metric and pass criterion in this doc *before* looking at new data.
+2. Build a candidate pool from days after the pilot, 2026-07-13 onward.
+3. Have the new pool labeled blind to this signal, from `draft_label_inputs` only.
+4. Run the fixed test once and report the result whichever way it comes out.
 
 **Handing the LLM a name-mention statistic directly (vs. voting between separate
 predictions).** Rather than combining name-mention and the full system's

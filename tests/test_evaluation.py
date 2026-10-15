@@ -1,5 +1,6 @@
 """Tests for financial_news.evaluation."""
 
+import json
 import sys
 from datetime import date
 from unittest.mock import MagicMock
@@ -70,6 +71,39 @@ def test_precision_recall_f1_no_positive_predictions_recall_zero():
 def test_precision_recall_f1_mismatched_lengths_raises():
     with pytest.raises(ValueError, match="same length"):
         evaluation.precision_recall_f1([True], [True, False])
+
+
+# ── mcnemar_exact ─────────────────────────────────────────────────────────────
+
+
+def _paired(only_a: int, only_b: int, both: int = 3) -> tuple[list, list, list]:
+    """Build paired predictions with the given discordant counts (all truths
+    True, so 'correct' == predicted True)."""
+    y_true = [True] * (only_a + only_b + both)
+    pred_a = [True] * only_a + [False] * only_b + [True] * both
+    pred_b = [False] * only_a + [True] * only_b + [True] * both
+    return y_true, pred_a, pred_b
+
+
+@pytest.mark.parametrize(
+    "only_a, only_b, expected_p",
+    [
+        (4, 5, 1.0),
+        (0, 2, 0.5),
+        (0, 0, 1.0),
+        (0, 6, 2 / 64),
+    ],
+)
+def test_mcnemar_exact(only_a, only_b, expected_p):
+    result = evaluation.mcnemar_exact(*_paired(only_a, only_b))
+    assert result["only_a_correct"] == only_a
+    assert result["only_b_correct"] == only_b
+    assert result["p_value"] == pytest.approx(expected_p)
+
+
+def test_mcnemar_exact_mismatched_lengths_raises():
+    with pytest.raises(ValueError, match="same length"):
+        evaluation.mcnemar_exact([True], [True], [True, False])
 
 
 # ── Label ─────────────────────────────────────────────────────────────────────
@@ -324,6 +358,139 @@ def test_predict_full_system_unparseable_response_defaults_to_noise(monkeypatch)
     assert is_real is False
 
 
+def test_predict_full_system_without_finbert_skips_scoring_and_tags(monkeypatch):
+    def _fail(*_):
+        raise AssertionError("score_headlines must not run when use_finbert=False")
+
+    monkeypatch.setattr(evaluation, "score_headlines", _fail)
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = _text_response(
+        "VERDICT: news_driven | REASON: guidance cut"
+    )
+    monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
+    articles = [
+        {"headline": f"Headline {i}", "summary": "", "time": "09:31:00"}
+        for i in range(7)
+    ]
+
+    is_real, _ = evaluation.predict_full_system(
+        _make_candidate(articles=articles), _enrich_cfg(), use_finbert=False
+    )
+
+    assert is_real is True
+    prompt = mock_client.messages.create.call_args.kwargs["messages"][0]["content"]
+    # max_articles=5: most recent five kept, in order, with no sentiment tags
+    assert "- Headline 0\n- Headline 1" in prompt
+    assert "Headline 4" in prompt
+    assert "Headline 5" not in prompt
+    assert "[" not in prompt.split("Headlines:")[1]
+
+
+def test_predict_full_system_default_prompt_includes_both_zscores(monkeypatch):
+    monkeypatch.setattr(evaluation, "score_headlines", lambda articles, *_: [])
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = _text_response("VERDICT: noise")
+    monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
+
+    evaluation.predict_full_system(
+        _make_candidate(articles=[], news_z=2.5, news_classification="elevated"),
+        _enrich_cfg(),
+    )
+
+    kwargs = mock_client.messages.create.call_args.kwargs
+    assert kwargs["messages"][0]["content"] == (
+        "Ticker: NVDA\nDate: 2026-01-15\n"
+        "Price move: +5.00% (z=3.00, unusual)\n"
+        "News volume: z=2.50 (elevated)\n"
+        "Headlines:\n(no headlines that day)"
+    )
+    assert "news-volume z-score" in kwargs["system"]
+
+
+def test_predict_full_system_without_news_zscore_keeps_price_zscore(monkeypatch):
+    monkeypatch.setattr(evaluation, "score_headlines", lambda articles, *_: [])
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = _text_response("VERDICT: noise")
+    monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
+
+    evaluation.predict_full_system(
+        _make_candidate(articles=[], news_z=2.5),
+        _enrich_cfg(),
+        include_news_zscore=False,
+    )
+
+    kwargs = mock_client.messages.create.call_args.kwargs
+    prompt = kwargs["messages"][0]["content"]
+    assert "News volume" not in prompt
+    assert "z=2.50" not in prompt
+    assert "Price move: +5.00% (z=3.00, unusual)" in prompt
+    assert "news-volume" not in kwargs["system"]
+    assert "price move and its z-score" in kwargs["system"]
+
+
+def test_judge_system_prompt_default_is_pinned():
+    """Pinned verbatim: the stored Z+F+L and Z+L verdicts that run_ablation
+    reuses (eval/baseline3_reasoning.json, eval/finbert_ablation.json) were
+    produced with exactly this prompt. Changing it means re-running those arms.
+    """
+    assert evaluation._judge_system_prompt() == (
+        "You are auditing a single flagged price move for a financial monitoring"
+        " system. You are given the price move and its z-score vs a volatility"
+        " baseline, the news-volume z-score for the same day vs a 30-day baseline,"
+        " and that day's headlines (with finBERT sentiment labels where available)."
+        " Decide whether this specific price move looks news-driven or looks like"
+        " statistical noise (mean reversion, a thin-liquidity print, a sector-wide"
+        " move mislabeled as single-name, options-expiry mechanics, etc). Consider"
+        " confounders explicitly. Respond with exactly one line in the form"
+        " 'VERDICT: news_driven | REASON: <one sentence>' or"
+        " 'VERDICT: noise | REASON: <one sentence>'."
+    )
+
+
+def test_judge_system_prompt_only_differs_by_news_clause():
+    with_news = evaluation._judge_system_prompt()
+    without_news = evaluation._judge_system_prompt(include_news_zscore=False)
+    assert with_news.replace(evaluation._NEWS_ZSCORE_CLAUSE, "") == without_news
+
+
+# ── predict_news_zscore_with_sentiment (Z+F ablation arm) ────────────────────
+
+
+def _scored(label: str, score: float) -> list[dict]:
+    return [{"headline": "h", "summary": "", "label": label, "score": score}]
+
+
+@pytest.mark.parametrize(
+    "news_z, scored, expected",
+    [
+        (1.0, _scored("positive", 0.95), False),  # below threshold
+        (2.5, _scored("neutral", 0.70), False),  # only neutral selected
+        (2.5, _scored("negative", 0.60), False),  # non-neutral but low confidence
+        (2.5, _scored("unavailable", 0.0), False),  # finBERT not installed
+        (2.5, _scored("negative", 0.90), True),
+        (2.5, _scored("positive", 0.85), True),  # exactly at confidence threshold
+    ],
+)
+def test_predict_news_zscore_with_sentiment(monkeypatch, news_z, scored, expected):
+    monkeypatch.setattr(evaluation, "score_headlines", lambda *_: scored)
+    candidate = _make_candidate(news_z=news_z)
+    assert (
+        evaluation.predict_news_zscore_with_sentiment(candidate, 2.0, _enrich_cfg())
+        is expected
+    )
+
+
+def test_predict_news_zscore_with_sentiment_no_articles_is_false(monkeypatch):
+    def _fail(*_):
+        raise AssertionError("score_headlines must not run with no articles")
+
+    monkeypatch.setattr(evaluation, "score_headlines", _fail)
+    candidate = _make_candidate(news_z=5.0, articles=[])
+    assert not evaluation.predict_news_zscore_with_sentiment(
+        candidate, 2.0, _enrich_cfg()
+    )
+
+
 # ── build_candidate_pool ─────────────────────────────────────────────────────
 
 
@@ -548,6 +715,176 @@ def test_print_report_includes_all_baselines(capsys):
     assert "Full system" in out
     assert "Sensitivity check" in out
     assert "NOT an independent baseline" in out
+
+
+# ── run_ablation / _print_ablation ───────────────────────────────────────────
+
+
+def _ablation_fixture(tmp_path):
+    candidates = [
+        _make_candidate(ticker="NVDA", day="2026-01-15", news_z=3.5),
+        _make_candidate(ticker="AMD", day="2026-01-16", news_z=0.5),
+    ]
+    labels = {
+        "NVDA:2026-01-15": evaluation.Label(
+            ticker="NVDA", date="2026-01-15", label="news_driven"
+        ),
+        "AMD:2026-01-16": evaluation.Label(
+            ticker="AMD", date="2026-01-16", label="noise"
+        ),
+    }
+    full_path = tmp_path / "baseline3_reasoning.json"
+    full_path.write_text(
+        json.dumps(
+            [
+                {
+                    "ticker": "NVDA",
+                    "date": "2026-01-15",
+                    "predicted": "news_driven",
+                    "reasoning": "full NVDA",
+                },
+                {
+                    "ticker": "AMD",
+                    "date": "2026-01-16",
+                    "predicted": "noise",
+                    "reasoning": "full AMD",
+                },
+            ]
+        )
+    )
+    finbert_path = tmp_path / "finbert_ablation.json"
+    finbert_path.write_text(
+        json.dumps(
+            [
+                {
+                    "ticker": t,
+                    "date": d,
+                    "without_finbert": "news_driven",
+                    "without_finbert_reasoning": f"z+l {t}",
+                }
+                for t, d in (("NVDA", "2026-01-15"), ("AMD", "2026-01-16"))
+            ]
+        )
+    )
+    return candidates, labels, full_path, finbert_path
+
+
+def test_run_ablation_assembles_all_arms(monkeypatch, tmp_path):
+    candidates, labels, full_path, finbert_path = _ablation_fixture(tmp_path)
+    calls = []
+
+    def _fake_predict(c, cfg, use_finbert=True, include_news_zscore=True):
+        calls.append((c["ticker"], use_finbert, include_news_zscore))
+        # F+L right on both; L alone calls everything noise
+        return (use_finbert and c["ticker"] == "NVDA"), f"{use_finbert} {c['ticker']}"
+
+    monkeypatch.setattr(evaluation, "predict_full_system", _fake_predict)
+    monkeypatch.setattr(
+        evaluation, "score_headlines", lambda *_: _scored("positive", 0.95)
+    )
+
+    result = evaluation.run_ablation(
+        candidates, labels, _fake_config(), full_path, finbert_path
+    )
+
+    # Stored arms are never re-run; new LLM arms always drop the news z-score.
+    assert sorted(calls) == sorted(
+        [(t, fb, False) for t in ("NVDA", "AMD") for fb in (True, False)]
+    )
+    arms = result["arms"]
+    assert list(arms) == [
+        "Z+F+L",
+        "Z+L",
+        "F+L",
+        "L",
+        "Z+F (θ=2.0)",
+        "Z (θ=2.0)",
+        "Z+F (θ=3.0)",
+        "Z (θ=3.0)",
+    ]
+    assert arms["Z+F+L"]["vs_full"] is None
+    assert arms["Z+F+L"]["metrics"]["accuracy"] == 1.0
+    assert arms["Z+L"]["metrics"]["accuracy"] == 0.5
+    assert arms["Z+L"]["vs_full"]["only_b_correct"] == 1
+    assert arms["L"]["metrics"]["recall"] == 0.0
+    assert arms["Z+F (θ=3.0)"]["metrics"]["accuracy"] == 1.0
+    assert result["rows"][1] == {
+        "ticker": "AMD",
+        "date": "2026-01-16",
+        "true_label": "noise",
+        "verdicts": {
+            "Z+F+L": "noise",
+            "Z+L": "news_driven",
+            "F+L": "noise",
+            "L": "noise",
+            "Z+F (θ=2.0)": "noise",
+            "Z (θ=2.0)": "noise",
+            "Z+F (θ=3.0)": "noise",
+            "Z (θ=3.0)": "noise",
+        },
+        "reasoning": {
+            "Z+F+L": "full AMD",
+            "Z+L": "z+l AMD",
+            "F+L": "True AMD",
+            "L": "False AMD",
+        },
+    }
+
+
+def test_run_ablation_raises_when_stored_verdicts_missing_a_row(monkeypatch, tmp_path):
+    candidates, labels, full_path, finbert_path = _ablation_fixture(tmp_path)
+    finbert_path.write_text(json.dumps([]))
+    monkeypatch.setattr(
+        evaluation,
+        "predict_full_system",
+        lambda *a, **k: pytest.fail("must fail before calling Claude"),
+    )
+
+    with pytest.raises(ValueError, match="Stored Z\\+L verdicts are missing"):
+        evaluation.run_ablation(
+            candidates, labels, _fake_config(), full_path, finbert_path
+        )
+
+
+def test_run_ablation_raises_when_no_confirmed_labels(tmp_path):
+    with pytest.raises(ValueError, match="No confirmed"):
+        evaluation.run_ablation([], {}, _fake_config(), tmp_path, tmp_path)
+
+
+def _sample_ablation() -> dict:
+    metrics = _sample_report()["full_system"]
+    return {
+        "n_labeled": 1,
+        "arms": {
+            "Z+F+L": {"metrics": metrics, "vs_full": None},
+            "L": {
+                "metrics": metrics,
+                "vs_full": {"only_a_correct": 0, "only_b_correct": 2, "p_value": 0.5},
+            },
+        },
+        "rows": [],
+    }
+
+
+def test_print_ablation_renders_arms_and_paired_test(capsys):
+    evaluation._print_ablation(_sample_ablation())
+    out = capsys.readouterr().out
+    assert "COMPONENT ABLATION — n=1" in out
+    assert "Z+F+L" in out
+    assert "0 / 2, p=0.500" in out
+
+
+def test_main_ablate_writes_result_file(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(evaluation, "load_candidates", lambda: [])
+    monkeypatch.setattr(evaluation, "load_labels", lambda: {})
+    out_path = tmp_path / "ablation.json"
+    monkeypatch.setattr(evaluation, "_ABLATION_PATH", out_path)
+    monkeypatch.setattr(evaluation, "run_ablation", lambda *a: _sample_ablation())
+    monkeypatch.setattr(sys, "argv", ["evaluation.py", "ablate"])
+
+    assert evaluation.main() == 0
+    assert json.loads(out_path.read_text()) == _sample_ablation()
+    assert "COMPONENT ABLATION" in capsys.readouterr().out
 
 
 def test_main_build_candidates_writes_and_prints_count(monkeypatch, capsys):
