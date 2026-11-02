@@ -148,7 +148,8 @@ After changing anything the evaluation fingerprints (see "Evaluation gate" in
 `test_committed_fingerprint_is_current` fails until you do:
 
 ```bash
-ANTHROPIC_API_KEY=<key> uv run python -m financial_news.eval_gate update
+FINNHUB_API_KEY=<key> ANTHROPIC_API_KEY=<key> \
+    uv run python -m financial_news.eval_gate update
 ```
 
 `report` requires `uv sync --group sentiment` (finBERT — used by the full system's

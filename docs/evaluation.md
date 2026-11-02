@@ -168,7 +168,8 @@ makes two checks:
 files it writes:
 
 ```bash
-ANTHROPIC_API_KEY=<key> uv run python -m financial_news.eval_gate update
+FINNHUB_API_KEY=<key> ANTHROPIC_API_KEY=<key> \
+    uv run python -m financial_news.eval_gate update
 ```
 
 It needs `eval/candidates.json` locally and `uv sync --all-groups`. It prints the

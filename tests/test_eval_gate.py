@@ -61,7 +61,8 @@ def _judge(verdicts: dict[str, bool]):
 
 def test_committed_fingerprint_is_current():
     """eval/fingerprint.json must match the code. If this fails, re-run the judge:
-    ANTHROPIC_API_KEY=<key> uv run python -m financial_news.eval_gate update
+    FINNHUB_API_KEY=<key> ANTHROPIC_API_KEY=<key> uv run python -m \\
+        financial_news.eval_gate update
     """
     committed = json.loads(eval_gate.FINGERPRINT_PATH.read_text())
     current = eval_gate.code_fingerprint(Config())

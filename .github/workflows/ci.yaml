@@ -105,6 +105,9 @@ jobs:
         id: fingerprint
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          # evaluation imports analysis, which needs a key at import time.
+          # The gate never calls Finnhub.
+          FINNHUB_API_KEY: unused
         run: |
           git show "$BASE_SHA:eval/fingerprint.json" > /tmp/base-fingerprint.json 2>/dev/null \
             || rm -f /tmp/base-fingerprint.json
@@ -156,6 +159,8 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          # See eval-fingerprint: needed at import time, never called.
+          FINNHUB_API_KEY: unused
         run: |
           cp eval-data/candidates.json eval/candidates.json
           git show "$BASE_SHA:eval/baseline3_reasoning.json" > /tmp/base-verdicts.json

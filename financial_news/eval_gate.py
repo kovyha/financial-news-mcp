@@ -17,10 +17,12 @@ Commands:
 
     # Locally, after changing anything fingerprinted: re-run the judge and write
     # the new verdicts and fingerprint for the PR to commit.
-    ANTHROPIC_API_KEY=<key> uv run python -m financial_news.eval_gate update
+    FINNHUB_API_KEY=<key> ANTHROPIC_API_KEY=<key> \\
+        uv run python -m financial_news.eval_gate update
 
     # CI, only when the fingerprint changed: re-run the judge and compare.
-    ANTHROPIC_API_KEY=<key> uv run python -m financial_news.eval_gate check \\
+    FINNHUB_API_KEY=<key> ANTHROPIC_API_KEY=<key> \\
+        uv run python -m financial_news.eval_gate check \\
         --base-verdicts FILE
 
 All commands use the committed defaults (Config()), never a local config.toml,
@@ -250,8 +252,8 @@ def fingerprint_check(
         print(
             f"❌ {FINGERPRINT_PATH} is out of date for: {', '.join(stale)}.\n"
             "These change the judge's verdicts, so re-run it and commit the result:\n"
-            "    ANTHROPIC_API_KEY=<key> uv run python -m financial_news.eval_gate"
-            " update"
+            "    FINNHUB_API_KEY=<key> ANTHROPIC_API_KEY=<key>"
+            " uv run python -m financial_news.eval_gate update"
         )
         return 1, False
     if base_path is None or not base_path.exists():
