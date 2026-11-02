@@ -38,6 +38,7 @@ Never move business logic (z-score math, classification thresholds, Finnhub fetc
 | [financial_news/monitor.py](financial_news/monitor.py) | Daily monitoring agent — fetches watchlist news and price z-scores and exports OTel gauges to Grafana Cloud (independent failure handling per signal) |
 | [financial_news/snapshot.py](financial_news/snapshot.py) | Passes monitor stats to the briefing step within the same workflow run (date-keyed, atomic write) |
 | [financial_news/evaluation.py](financial_news/evaluation.py) | Baseline comparison harness — quantifies how much news-volume z-score, name-mention text-matching, and full-system LLM reasoning each contribute to detecting news-driven price moves, against a human-labeled historical dataset. Price z-score is reported separately as a threshold-sensitivity check only, not a peer baseline (the candidate pool is itself selected on that statistic, so evaluating it at the same cut would be circular). Also runs a component ablation (`run_ablation`) of the full system with paired McNemar tests. See [docs/evaluation.md](docs/evaluation.md) |
+| [financial_news/eval_gate.py](financial_news/eval_gate.py) | Evaluation gate — fingerprints what the evaluation judge's verdicts depend on (prompts, verdict-path code, Claude model, library versions, pinned finBERT, labels, candidates); CI re-runs the judge when it changes and fails if verdicts got net worse by more than max(2, 2%). Protected |
 | [config.example.toml](config.example.toml) | Copy to `config.toml` to customize thresholds, logging, and the Claude model/effort (`[llm]`) |
 
 ## Governance docs — read these before making changes
@@ -140,6 +141,15 @@ FINNHUB_API_KEY=<key> ANTHROPIC_API_KEY=<key> \
 # Component ablation (Z=news z, F=finBERT, L=Claude) -> eval/ablation.json.
 FINNHUB_API_KEY=<key> ANTHROPIC_API_KEY=<key> \
     uv run python -m financial_news.evaluation ablate
+```
+
+After changing anything the evaluation fingerprints (see "Evaluation gate" in
+[docs/evaluation.md](docs/evaluation.md)), re-run the judge and commit both files it writes;
+`test_committed_fingerprint_is_current` fails until you do:
+
+```bash
+FINNHUB_API_KEY=<key> ANTHROPIC_API_KEY=<key> \
+    uv run python -m financial_news.eval_gate update
 ```
 
 `report` requires `uv sync --group sentiment` (finBERT — used by the full system's

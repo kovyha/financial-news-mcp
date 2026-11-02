@@ -16,6 +16,7 @@ For the canonical contributor workflow and validation commands, see `CONTRIBUTIN
 - `financial_news/` — package directory:
   - `server.py` — MCP server exposing tools (`get_news_volume`, `get_price_move`, `get_price_intraday`, `health_check`).
   - `config.py` — configuration loader for logging, analysis, price, sentiment and `[llm]` settings (baseline window, classification thresholds, Claude model/effort/fallback via `LLMConfig`).
+  - `eval_gate.py` — evaluation gate: fingerprints what the evaluation judge's verdicts depend on, and re-runs the judge in CI when it changes (`fingerprint-check`, `update`, `check`). Protected. See `docs/evaluation.md`.
   - `sandbox.py` — network sandbox for the server and monitor: host allowlist, launcher (`python -m financial_news.sandbox {server,monitor,prefetch-model}`) and the `require_sandbox()` startup check. Protected.
   - `approved_models.py` — sentiment models approved for use, pinned to a Hugging Face commit. Protected.
   - `briefing.py` — daily briefing agent; runs the enrichment pipeline over watchlist stats (news + price), then calls Claude (with `get_news_headlines` and, for elevated/unusual tickers, `get_price_intraday`) to produce a plain-language briefing.
@@ -44,11 +45,12 @@ For the canonical contributor workflow and validation commands, see `CONTRIBUTIN
   - `test_logging.py` — tests for logging and rollover behavior.
   - `test_diagnostic.py` — tests for the diagnostic agent.
   - `test_monitor.py` — tests for the monitoring agent (run(), gauge values for both news and price, OTel wiring, independent failure handling).
+  - `test_eval_gate.py` — tests for the evaluation gate: fingerprint sensitivity, that the committed fingerprint is current, the pass mark, verdict comparison, and each command.
   - `test_evaluation.py` — tests for the baseline evaluation harness: candidate pool building, labels/candidates JSON I/O, all three baseline predictors plus the price z-score sensitivity check (news z-score, name-mention, full system with mocked Anthropic client, and price z-score), `precision_recall_f1`, `mcnemar_exact`, report generation, the component ablation (`run_ablation`, including the news-z-free prompt and the Z+F rule), and the CLI.
   - `conftest.py` — pytest configuration and fixtures.
 - `docs/` — documentation for iterations and developer notes.
 - `.github/workflows/` — GitHub Actions CI/CD workflows:
-  - `ci.yaml` — the `lint-and-test`, `sandbox` and `protected-files` jobs; see `CONTRIBUTING.md` for what each runs. Caches and pre-downloads the approved finBERT model at its pinned revision.
+  - `ci.yaml` — the `lint-and-test`, `sandbox`, `protected-files`, `eval-fingerprint` and `eval-run` jobs; see `CONTRIBUTING.md` for what each runs. Caches and pre-downloads the approved finBERT model at its pinned revision.
   - `monitor.yaml` — daily run at 12:00 UTC (8am ET, pre-market); runs the monitor step inside the network sandbox (OTel gauges to Grafana Cloud), then the briefing step (finBERT sentiment + Claude analysis + email), and invokes the LLM diagnostic agent on failure. Disabled by default until secrets are configured.
 - `.github/CODEOWNERS` — requests the maintainer's review on PRs touching governance and core files.
 - `.github/protected-files.txt` — the protected-files list read by CI (from `main`, so a PR can't shorten it).

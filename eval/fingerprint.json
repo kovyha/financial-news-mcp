@@ -1,0 +1,24 @@
+{
+  "claude_model": "claude-opus-4-7",
+  "claude_max_tokens": 300,
+  "sentiment_model": "ProsusAI/finbert@0bc2ac10dda6929bcb1f77ccc43c7ec5c424f031",
+  "article_selection": {
+    "confidence_threshold": 0.85,
+    "min_articles": 5,
+    "max_articles": 50,
+    "labels": [
+      "negative",
+      "neutral",
+      "positive"
+    ]
+  },
+  "judge_system_prompt_sha256": "d85fd4bb3c5b18d3f4a03391f48983cb0b6a1384b7955f70a2502160c1b20fbf",
+  "verdict_code_sha256": "57ff17caf26d8905d01582ffc637b361eddefad82e38a2c0308584e6fc171d61",
+  "labels_sha256": "a7e11883217487593968d354ab1ebef157f26fa7817c4fa8abba5cbba8315c4c",
+  "candidates_sha256": "e4be28d541992305f93d7036ed7ff46883ec4a1be101ec6108a001ea8c02d2cf",
+  "library_versions": {
+    "anthropic": "0.102.0",
+    "torch": "2.12.0",
+    "transformers": "5.9.0"
+  }
+}

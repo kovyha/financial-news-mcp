@@ -30,6 +30,7 @@ is `.github/protected-files.txt`:
 - `uv.lock` — locked dependency versions
 - `financial_news/sandbox.py` — network sandbox and host allowlist
 - `financial_news/approved_models.py` — approved, pinned sentiment models
+- `financial_news/eval_gate.py` — evaluation gate: what triggers a re-run and the pass mark
 - `tests/test_boundary.py`, `tests/test_sandbox_integration.py` — boundary tests
 - Secrets, API keys, or credentials of any kind
 
