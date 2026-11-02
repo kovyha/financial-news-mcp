@@ -11,6 +11,7 @@ from financial_news.analysis import client
 from financial_news.config import load_config
 from financial_news.enrichment import EnrichmentConfig, enrich_ticker
 from financial_news.price import compute_price_stats, fetch_intraday_prices
+from financial_news.sandbox import require_sandbox
 
 logger = logging.getLogger(__name__)
 
@@ -180,4 +181,5 @@ def get_price_intraday(symbol: str) -> dict:
 
 
 if __name__ == "__main__":
+    require_sandbox()
     mcp.run()

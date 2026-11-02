@@ -17,9 +17,8 @@ from datetime import date
 from datetime import datetime as dt
 from pathlib import Path
 
-import anthropic
-
-from financial_news.config import load_config
+from financial_news.config import LLMConfig, load_config
+from financial_news.llm import run_tool_loop
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -39,9 +38,10 @@ _SYSTEM_PROMPT = (
 )
 
 
-def _analyze_with_llm(error_lines: list[str], project_root: Path) -> str:
+def _analyze_with_llm(
+    error_lines: list[str], project_root: Path, llm: LLMConfig | None = None
+) -> str:
     """Call Claude to reason about error lines, reading source files as needed."""
-    client = anthropic.Anthropic()
     tools = [
         {
             "name": "read_file",
@@ -67,48 +67,22 @@ def _analyze_with_llm(error_lines: list[str], project_root: Path) -> str:
     ]
     error_text = "\n".join(error_lines)
     prompt = f"Error log entries from today:\n\n{error_text}"
-    messages = [{"role": "user", "content": prompt}]
-    while True:
-        response = client.messages.create(
-            model="claude-opus-4-7",
-            max_tokens=8192,
-            thinking={"type": "adaptive"},
-            system=[
-                {
-                    "type": "text",
-                    "text": _SYSTEM_PROMPT,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
-            tools=tools,
-            messages=messages,
-        )
-        if response.stop_reason == "end_turn":
-            return "\n".join(
-                block.text for block in response.content if block.type == "text"
-            )
-        if response.stop_reason != "tool_use":
-            return f"Analysis ended unexpectedly (stop_reason={response.stop_reason})."
-        messages.append({"role": "assistant", "content": response.content})
-        tool_results = []
-        for block in response.content:
-            if block.type != "tool_use":
-                continue
-            raw_path = block.input.get("path", "")
-            target = (project_root / raw_path).resolve()
-            if not target.is_relative_to(project_root):
-                content = "Error: path traversal not allowed."
-            elif not target.exists():
-                content = f"File not found: {raw_path}"
-            else:
-                try:
-                    content = target.read_text(encoding="utf-8")
-                except Exception as exc:
-                    content = f"Error reading {raw_path}: {exc}"
-            tool_results.append(
-                {"type": "tool_result", "tool_use_id": block.id, "content": content}
-            )
-        messages.append({"role": "user", "content": tool_results})
+
+    def answer_tool(block) -> str:
+        raw_path = block.input.get("path", "")
+        target = (project_root / raw_path).resolve()
+        if not target.is_relative_to(project_root):
+            return "Error: path traversal not allowed."
+        if not target.exists():
+            return f"File not found: {raw_path}"
+        try:
+            return target.read_text(encoding="utf-8")
+        except Exception as exc:
+            return f"Error reading {raw_path}: {exc}"
+
+    return run_tool_loop(
+        _SYSTEM_PROMPT, prompt, tools, answer_tool, llm or LLMConfig(), "Analysis"
+    )
 
 
 def _find_active_error_log(log_dir: Path, filename_stem: str) -> Path | None:
@@ -223,7 +197,7 @@ def diagnose(
         report_lines.append("LLM root-cause analysis:")
         report_lines.append("")
         try:
-            analysis = _analyze_with_llm(error_lines[:20], _PROJECT_ROOT)
+            analysis = _analyze_with_llm(error_lines[:20], _PROJECT_ROOT, config.llm)
             report_lines.append(analysis)
         except Exception as exc:
             logger.exception("LLM analysis failed")

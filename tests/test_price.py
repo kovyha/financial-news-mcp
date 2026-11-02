@@ -45,38 +45,6 @@ def test_calculate_price_z_score_parametrized(return_pct, mean, std, expected):
     )
 
 
-# ── _winsorize_two_sided ─────────────────────────────────────────────────────
-
-
-def test_winsorize_two_sided_empty_list_returns_empty():
-    assert price._winsorize_two_sided([], k=3.5) == []
-
-
-def test_winsorize_two_sided_zero_mad_returns_unchanged():
-    values = [0.0, 0.0, 0.0, 0.05]
-    assert price._winsorize_two_sided(values, k=3.5) == values
-
-
-def test_winsorize_two_sided_caps_high_outlier():
-    values = [0.01] * 10 + [0.02] * 10 + [0.90]
-    result = price._winsorize_two_sided(values, k=3.5)
-    assert result[:-1] == values[:-1]
-    assert result[-1] < 0.90
-
-
-def test_winsorize_two_sided_caps_low_outlier():
-    """Unlike analysis's one-sided winsorize, a large negative move is also capped."""
-    values = [0.01] * 10 + [0.02] * 10 + [-0.90]
-    result = price._winsorize_two_sided(values, k=3.5)
-    assert result[:-1] == values[:-1]
-    assert result[-1] > -0.90
-
-
-def test_winsorize_two_sided_no_op_when_all_within_cap():
-    values = [0.01, 0.02, 0.01, 0.03, 0.02]
-    assert price._winsorize_two_sided(values, k=10.0) == values
-
-
 # ── compute_price_stats ──────────────────────────────────────────────────────
 
 
@@ -122,6 +90,23 @@ def test_compute_price_stats_returns_expected_keys(monkeypatch):
         "baseline_days",
     }
     assert stats["symbol"] == "FAKE"
+
+
+def test_compute_price_stats_winsorizes_both_tails(monkeypatch):
+    """Returns move both ways, so price caps both tails (analysis caps only one)."""
+    _mock_ticker(
+        monkeypatch, closes=[100.0] * 35, current_price=101.0, previous_close=100.0
+    )
+    calls = []
+    original = price.winsorize
+
+    def spy(values, k, two_sided):
+        calls.append((k, two_sided))
+        return original(values, k, two_sided)
+
+    monkeypatch.setattr(price, "winsorize", spy)
+    price.compute_price_stats("FAKE")
+    assert calls == [(price.PRICE_WINSORIZE_K, True)]
 
 
 def test_compute_price_stats_flat_baseline_normal_move(monkeypatch):

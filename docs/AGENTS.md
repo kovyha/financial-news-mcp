@@ -96,7 +96,7 @@ runs as the second step of the same job (sharing the runner and `/tmp`).
    Disabled by default until secrets (`FINNHUB_API_KEY`, `GRAFANA_CLOUD_OTLP_ENDPOINT`,
    `GRAFANA_CLOUD_BASIC_AUTH_HEADER`) are configured in GitHub Actions.
 2. **Manual:** `workflow_dispatch` on the `monitor.yaml` workflow (set `run_briefing: false`
-   to skip the briefing step), or `uv run python -m financial_news.monitor` locally.
+   to skip the briefing step), or `uv run python -m financial_news.sandbox monitor` locally.
 
 **Scope:** Read-only against the Finnhub API and the local config. Writes metrics to
 Grafana Cloud only. Does not modify any file in the repository.
@@ -105,6 +105,8 @@ Grafana Cloud only. Does not modify any file in the repository.
 - Deterministic only within `run()`. Calls `compute_volume_stats()` from `analysis.py`
   and `compute_price_stats()` from `price.py`, recording both results via OTel gauges —
   no LLM inference occurs.
+- Runs inside the network sandbox (`financial_news/sandbox.py`), which allows only
+  Finnhub, Yahoo Finance and the Grafana OTLP host, and refuses to start outside it.
 - Inf/large z-scores (zero-baseline spikes, extreme price moves) are capped so OTel
   gauges stay finite.
 - News and price fetches fail independently per ticker (a yfinance outage does not
@@ -202,11 +204,15 @@ a structured signal for Claude to reason over.
 **Scope:** Read-only against the Finnhub API. No write access to any system.
 
 **Constraints:**
-- Deterministic only. Fetches Finnhub data, computes article counts, mean, standard
+- The signal is deterministic. Fetches Finnhub data, computes article counts, mean, standard
   deviation (via pandas EWM) and z-score, classifies the result against configurable thresholds,
-  and returns a structured string.
-- No model inference occurs inside this tool. All LLM reasoning begins after the tool
+  and returns a structured dict.
+- No LLM inference occurs inside this tool. All LLM reasoning begins after the tool
   returns its output.
+- finBERT runs locally as a preprocessing step (`enrichment.py`, `sentiment.py`) to score
+  and select articles. It does not affect the z-score or classification. Only models in
+  `financial_news/approved_models.py` load, at their pinned revision, offline.
+- Like every MCP tool, runs inside the network sandbox (`financial_news/sandbox.py`).
 - Requires `FINNHUB_API_KEY` in the environment.
 - Classification thresholds (normal / elevated / unusual) must not be changed without
   human review.

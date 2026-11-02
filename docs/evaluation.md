@@ -133,6 +133,11 @@ and `_print_report` renders a plain comparison table.
 
 ## Results — pilot run (2026-04-13 to 2026-07-12, current watchlist)
 
+All LLM results below were produced with `claude-opus-4-7`, which `evaluation.py` still
+uses. The briefing and diagnostic agents moved to `claude-opus-5-5` on 2026-11-02, so these
+numbers don't yet measure the live model. They'll be re-run when the evaluation gate in CI
+lands.
+
 53 candidates, 43 scored (31 news_driven / 12 noise; 10 ambiguous excluded).
 
 | Baseline | Precision | Recall | F1 | Accuracy | tp / fp / fn / tn |

@@ -1,0 +1,18 @@
+name: Set up sandbox runtime
+description: Node.js plus the Linux packages the network sandbox (srt) needs.
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: "22"
+
+    - name: Install sandbox runtime dependencies
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y bubblewrap socat ripgrep
+        # Ubuntu 24.04 restricts unprivileged user namespaces, which bubblewrap needs.
+        sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0

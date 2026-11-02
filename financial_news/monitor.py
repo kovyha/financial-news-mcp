@@ -11,7 +11,7 @@ Run via GitHub Actions (monitor.yaml) or manually:
     FINNHUB_API_KEY=<key> \\
     GRAFANA_CLOUD_OTLP_ENDPOINT=<url> \\
     GRAFANA_CLOUD_BASIC_AUTH_HEADER="Basic <token>" \\
-    uv run python -m financial_news.monitor
+    uv run python -m financial_news.sandbox monitor
 """
 
 import logging
@@ -34,6 +34,7 @@ from financial_news import (
 from financial_news.analysis import GAUGE_SPECS, compute_volume_stats
 from financial_news.config import load_config
 from financial_news.price import PRICE_GAUGE_SPECS, compute_price_stats
+from financial_news.sandbox import require_sandbox
 
 logger = logging.getLogger(__name__)
 
@@ -149,4 +150,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    require_sandbox()
     sys.exit(main())

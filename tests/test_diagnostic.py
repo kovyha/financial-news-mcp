@@ -6,32 +6,18 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import anthropic
+from claude_mocks import response as _response
+from claude_mocks import text_block as _text_block
+from claude_mocks import tool_use_block
 
 from financial_news import diagnostic
+from financial_news.config import LLMConfig
 
 # ── Helpers for building mock Anthropic response objects ──────────────────────
 
 
-def _text_block(text: str) -> MagicMock:
-    block = MagicMock()
-    block.type = "text"
-    block.text = text
-    return block
-
-
 def _tool_use_block(block_id: str, path: str) -> MagicMock:
-    block = MagicMock()
-    block.type = "tool_use"
-    block.id = block_id
-    block.input = {"path": path}
-    return block
-
-
-def _response(stop_reason: str, content: list) -> MagicMock:
-    resp = MagicMock()
-    resp.stop_reason = stop_reason
-    resp.content = content
-    return resp
+    return tool_use_block(block_id, "read_file", {"path": path})
 
 
 def test_read_error_log_for_date_empty_file():
@@ -222,7 +208,7 @@ def test_analyze_with_llm_end_turn(monkeypatch, tmp_path):
     """end_turn immediately — no tool calls needed."""
     resp = _response("end_turn", [_text_block("Root cause: invalid API key.")])
     mock_client = MagicMock()
-    mock_client.messages.create.return_value = resp
+    mock_client.beta.messages.create.return_value = resp
     monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
 
     result = diagnostic._analyze_with_llm(["16-05-2026 ERROR boom"], tmp_path)
@@ -233,11 +219,28 @@ def test_analyze_with_llm_unexpected_stop_reason(monkeypatch, tmp_path):
     """Non-tool_use, non-end_turn stop_reason returns an error string."""
     resp = _response("max_tokens", [])
     mock_client = MagicMock()
-    mock_client.messages.create.return_value = resp
+    mock_client.beta.messages.create.return_value = resp
     monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
 
     result = diagnostic._analyze_with_llm(["error"], tmp_path)
     assert "max_tokens" in result
+
+
+def test_analyze_with_llm_uses_llm_config(monkeypatch, tmp_path):
+    """Model, effort and fallback come from the [llm] config, not hard-coded."""
+    resp = _response("end_turn", [_text_block("ok")])
+    mock_client = MagicMock()
+    mock_client.beta.messages.create.return_value = resp
+    monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
+
+    llm = LLMConfig(model="claude-sonnet-5-5", effort="low")
+    diagnostic._analyze_with_llm(["error"], tmp_path, llm)
+
+    call_kwargs = mock_client.beta.messages.create.call_args[1]
+    assert call_kwargs["model"] == "claude-sonnet-5-5"
+    assert call_kwargs["output_config"] == {"effort": "low"}
+    assert call_kwargs["betas"] == ["server-side-fallback-2026-07-01"]
+    assert call_kwargs["extra_body"] == {"fallbacks": "default"}
 
 
 def test_analyze_with_llm_tool_use_valid_file(monkeypatch, tmp_path):
@@ -252,14 +255,14 @@ def test_analyze_with_llm_tool_use_valid_file(monkeypatch, tmp_path):
     end_resp = _response("end_turn", [_text_block("Fix: update EWM span.")])
 
     mock_client = MagicMock()
-    mock_client.messages.create.side_effect = [tool_resp, end_resp]
+    mock_client.beta.messages.create.side_effect = [tool_resp, end_resp]
     monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
 
     result = diagnostic._analyze_with_llm(["error"], tmp_path)
     assert "Fix: update EWM span." in result
 
     # Verify file content was passed back as tool result
-    second_msgs = mock_client.messages.create.call_args_list[1][1]["messages"]
+    second_msgs = mock_client.beta.messages.create.call_args_list[1][1]["messages"]
     tool_result_content = second_msgs[-1]["content"][0]["content"]
     assert "z-score logic" in tool_result_content
 
@@ -270,12 +273,12 @@ def test_analyze_with_llm_path_traversal_rejected(monkeypatch, tmp_path):
     end_resp = _response("end_turn", [_text_block("done")])
 
     mock_client = MagicMock()
-    mock_client.messages.create.side_effect = [tool_resp, end_resp]
+    mock_client.beta.messages.create.side_effect = [tool_resp, end_resp]
     monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
 
     diagnostic._analyze_with_llm(["error"], tmp_path)
 
-    second_msgs = mock_client.messages.create.call_args_list[1][1]["messages"]
+    second_msgs = mock_client.beta.messages.create.call_args_list[1][1]["messages"]
     tool_result_content = second_msgs[-1]["content"][0]["content"]
     assert "path traversal not allowed" in tool_result_content
 
@@ -286,12 +289,12 @@ def test_analyze_with_llm_file_not_found(monkeypatch, tmp_path):
     end_resp = _response("end_turn", [_text_block("done")])
 
     mock_client = MagicMock()
-    mock_client.messages.create.side_effect = [tool_resp, end_resp]
+    mock_client.beta.messages.create.side_effect = [tool_resp, end_resp]
     monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
 
     diagnostic._analyze_with_llm(["error"], tmp_path)
 
-    second_msgs = mock_client.messages.create.call_args_list[1][1]["messages"]
+    second_msgs = mock_client.beta.messages.create.call_args_list[1][1]["messages"]
     tool_result_content = second_msgs[-1]["content"][0]["content"]
     assert "File not found" in tool_result_content
 
@@ -310,12 +313,12 @@ def test_analyze_with_llm_file_read_error(monkeypatch, tmp_path):
     end_resp = _response("end_turn", [_text_block("done")])
 
     mock_client = MagicMock()
-    mock_client.messages.create.side_effect = [tool_resp, end_resp]
+    mock_client.beta.messages.create.side_effect = [tool_resp, end_resp]
     monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
 
     diagnostic._analyze_with_llm(["error"], tmp_path)
 
-    second_msgs = mock_client.messages.create.call_args_list[1][1]["messages"]
+    second_msgs = mock_client.beta.messages.create.call_args_list[1][1]["messages"]
     tool_result_content = second_msgs[-1]["content"][0]["content"]
     assert "Error reading" in tool_result_content
 
@@ -329,7 +332,7 @@ def test_diagnose_with_llm_success(monkeypatch, tmp_path):
 
     resp = _response("end_turn", [_text_block("LLM found the bug.")])
     mock_client = MagicMock()
-    mock_client.messages.create.return_value = resp
+    mock_client.beta.messages.create.return_value = resp
     monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
 
     log_file = tmp_path / "test.error.log"
@@ -347,7 +350,7 @@ def test_diagnose_llm_failure_falls_back(monkeypatch, tmp_path):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
 
     mock_client = MagicMock()
-    mock_client.messages.create.side_effect = RuntimeError("API unavailable")
+    mock_client.beta.messages.create.side_effect = RuntimeError("API unavailable")
     monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
 
     log_file = tmp_path / "test.error.log"

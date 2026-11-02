@@ -20,12 +20,17 @@ Audience: Agents / automation + Developers
 
 ## Files requiring explicit human review
 
-No agent may modify the following without explicit human instruction:
+No agent may modify the following without explicit human instruction. The canonical list
+is `.github/protected-files.txt`:
 
-- `.github/workflows/ci.yaml` — CI configuration
-- `uv.lock` — locked dependency versions
 - `docs/AGENTS.md` — agent governance catalog
 - `docs/SKILL.md` — this file
+- `.github/` — workflows, shared actions, `CODEOWNERS`, and the protected-files list itself
+- `.claude/settings.json` — agent permission rules
+- `uv.lock` — locked dependency versions
+- `financial_news/sandbox.py` — network sandbox and host allowlist
+- `financial_news/approved_models.py` — approved, pinned sentiment models
+- `tests/test_boundary.py`, `tests/test_sandbox_integration.py` — boundary tests
 - Secrets, API keys, or credentials of any kind
 
 ## Human review gate (enforced by CI and GitHub)
@@ -35,9 +40,14 @@ landing on `main`. No agent may self-approve or merge its own changes. This appl
 code, tests, documentation, and configuration.
 
 **Enforcement:**
-- GitHub branch protection on `main` requires 1+ approval from `@{GITHUB_ORG}/maintainers`
-- CI check (`protected-files`) blocks changes to governance files without explicit flags
-- CODEOWNERS automatically assigns reviewers to PRs modifying critical files
+- GitHub branch protection on `main` requires a PR and passing CI, with no bypass. The
+  maintainer reviews and merges each PR. (With a single maintainer GitHub can't require
+  an approving review, because no one can approve their own PR.)
+- CI check (`protected-files`) fails any PR touching a protected file until the maintainer
+  adds the `protected-change-approved` label. It reads the list from `main`, so a PR
+  can't shorten its own check.
+- `.claude/settings.json` denies agent pushes to `main` and force pushes.
+- CODEOWNERS requests the maintainer's review on PRs modifying critical files.
 
 ## Deterministic/LLM boundary
 
@@ -49,6 +59,14 @@ property of this system. Agents must not:
   behaviour) into prompts, LLM calls, or agent reasoning steps.
 - Move LLM interpretation or contextual reasoning into the deterministic layer.
 - Modify classification thresholds (`threshold_elevated`, `threshold_unusual` in `config.toml` or their defaults in `AnalysisConfig`) without explicit human review and a documented rationale.
+- Widen the sandbox allowlist, add or re-pin a sentiment model, or weaken a boundary test
+  without explicit human instruction. These are protected files.
+- Run the MCP server or monitor outside the network sandbox. Launch them with
+  `python -m financial_news.sandbox {server,monitor}`.
+
+The boundary is enforced at runtime by the network sandbox (`financial_news/sandbox.py`)
+and statically by `tests/test_boundary.py`. See "How the boundary is enforced" in
+`README.md`, including what it doesn't cover.
 
 Any change that touches this boundary must be flagged explicitly in the PR or change
 summary, and reviewed by a human before merge.
