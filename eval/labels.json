@@ -7,8 +7,8 @@
   },
   {
     "date": "2026-04-30",
-    "label": "noise",
-    "notes": "No NVDA-specific story; day dominated by Meta/Alphabet/Microsoft earnings reactions and a Brent crude spike. Full-set re-review: the closest NVDA explainer still attributes the move to peers' chip disclosures, not an NVDA-originated event.",
+    "label": "ambiguous",
+    "notes": "No NVDA-specific story; day dominated by Meta/Alphabet/Microsoft earnings reactions and a Brent crude spike. Full-set re-review: the closest NVDA explainer still attributes the move to peers' chip disclosures, not an NVDA-originated event. | Revised 2026-11-02 by kovyha, re-applying the classification rule strictly (row flagged for re-review by a second-model check): The chip sector rose while NVDA fell 4.6%, with NVDA-specific competition coverage (hyperscaler custom chips, Huawei gaining in China); not plain sector beta, but no single NVDA event either. (was: noise)",
     "ticker": "NVDA"
   },
   {
@@ -61,8 +61,8 @@
   },
   {
     "date": "2026-06-29",
-    "label": "news_driven",
-    "notes": "Summary confirms two specific catalysts: \"Morgan Stanley and Barclays raised Q2 delivery estimates above 413,000 units while the NHTSA dropped the steering probe.\" Confirmed by full-set re-review.",
+    "label": "ambiguous",
+    "notes": "Summary confirms two specific catalysts: \"Morgan Stanley and Barclays raised Q2 delivery estimates above 413,000 units while the NHTSA dropped the steering probe.\" Confirmed by full-set re-review. | Revised 2026-11-02 by kovyha, re-applying the classification rule strictly (row flagged for re-review by a second-model check): Rivian and Lucid both rose ~7% the same day with no news of their own; TSLA's specific catalysts (delivery estimate raises, closed probe) explain only part of an 8.5% move. (was: news_driven)",
     "ticker": "TSLA"
   },
   {
@@ -97,8 +97,8 @@
   },
   {
     "date": "2026-06-05",
-    "label": "news_driven",
-    "notes": "Strong evidence: investor backlash to a reported multi-billion-dollar AI equity raise (\"drunken sailors spending\" quote), confirmed across many dedicated selloff-explainer articles that explicitly name the equity-raise report as the proximate cause, despite a real same-day Nasdaq-wide selloff. Confirmed by full-set re-review.",
+    "label": "ambiguous",
+    "notes": "Strong evidence: investor backlash to a reported multi-billion-dollar AI equity raise (\"drunken sailors spending\" quote), confirmed across many dedicated selloff-explainer articles that explicitly name the equity-raise report as the proximate cause, despite a real same-day Nasdaq-wide selloff. Confirmed by full-set re-review. | Revised 2026-11-02 by kovyha, re-applying the classification rule strictly (row flagged for re-review by a second-model check): The FT equity-raise report is real, but the Nasdaq-100 fell 4.8% the same day and META fell 5.5%; mixed evidence under the rule. (was: news_driven)",
     "ticker": "META"
   },
   {
@@ -109,8 +109,8 @@
   },
   {
     "date": "2026-06-17",
-    "label": "news_driven",
-    "notes": "Summary confirms a specific driver, corroborated by a Reuters exclusive naming the departing executive: \"the leader of its internal AI initiative is leaving the company.\" Confirmed by full-set re-review.",
+    "label": "ambiguous",
+    "notes": "Summary confirms a specific driver, corroborated by a Reuters exclusive naming the departing executive: \"the leader of its internal AI initiative is leaving the company.\" Confirmed by full-set re-review. | Revised 2026-11-02 by kovyha, re-applying the classification rule strictly (row flagged for re-review by a second-model check): The move is idiosyncratic, but the only catalyst offered is a mid-level product lead's departure, linked to the move by a single outlet. (was: news_driven)",
     "ticker": "META"
   },
   {
@@ -121,8 +121,8 @@
   },
   {
     "date": "2026-04-16",
-    "label": "noise",
-    "notes": "Summary confirms sector spillover: \"AMD stock is rallying as strong TSMC earnings trigger a sector-wide rally\" \u2014 not an AMD-specific event. Confirmed by full-set re-review; no AMD-specific catalyst found in the full 52-headline set.",
+    "label": "ambiguous",
+    "notes": "Summary confirms sector spillover: \"AMD stock is rallying as strong TSMC earnings trigger a sector-wide rally\" \u2014 not an AMD-specific event. Confirmed by full-set re-review; no AMD-specific catalyst found in the full 52-headline set. | Revised 2026-11-02 by kovyha, re-applying the classification rule strictly (row flagged for re-review by a second-model check): Bernstein raised its AMD target the same day, and AMD rose 7.8% while TSMC itself fell 3%, so this is not plain spillover; a real AMD-specific item alongside a dominant sector move is ambiguous under the rule. (was: noise)",
     "ticker": "AMD"
   },
   {
@@ -169,14 +169,14 @@
   },
   {
     "date": "2026-05-15",
-    "label": "news_driven",
-    "notes": "Summary confirms a named reversal trigger: \"Ford Motor shares fell more than 7% ... pulling back after a two-day rally ... as Barclays says AI trade 'overdone.'\" Full-set re-review found a same-day macro overlay (CPI at 3.8%, broad rate-hike panic) worth noting, but the named Barclays action keeps this news_driven.",
+    "label": "ambiguous",
+    "notes": "Summary confirms a named reversal trigger: \"Ford Motor shares fell more than 7% ... pulling back after a two-day rally ... as Barclays says AI trade 'overdone.'\" Full-set re-review found a same-day macro overlay (CPI at 3.8%, broad rate-hike panic) worth noting, but the named Barclays action keeps this news_driven. | Revised 2026-11-02 by kovyha, re-applying the classification rule strictly (row flagged for re-review by a second-model check): Mean reversion after a ~21% two-day run on a broad down day (S&P -1.2%, rate-hike fears); the Barclays 'overdone' comment is a minority item. Mixed evidence under the rule. (was: news_driven)",
     "ticker": "F"
   },
   {
     "date": "2026-05-22",
-    "label": "news_driven",
-    "notes": "Continued reaction to the same Ford AI/energy narrative (\"Wall Street Wakes Up to Its AI Play\"), reinforced by a same-day BlueOval SK joint-venture restructuring. Confirmed by full-set re-review.",
+    "label": "ambiguous",
+    "notes": "Continued reaction to the same Ford AI/energy narrative (\"Wall Street Wakes Up to Its AI Play\"), reinforced by a same-day BlueOval SK joint-venture restructuring. Confirmed by full-set re-review. | Revised 2026-11-02 by kovyha, re-applying the classification rule strictly (row flagged for re-review by a second-model check): Explainers name no catalyst beyond a general 'AI play' re-rating; no outlet credits the BlueOval SK restructuring for the move. (was: news_driven)",
     "ticker": "F"
   },
   {
@@ -193,26 +193,26 @@
   },
   {
     "date": "2026-06-04",
-    "label": "news_driven",
-    "notes": "Summary confirms a new product launch: \"BofA plans to launch real-time cross-border payments,\" expanding transaction banking. Confirmed by full-set re-review.",
+    "label": "ambiguous",
+    "notes": "Summary confirms a new product launch: \"BofA plans to launch real-time cross-border payments,\" expanding transaction banking. Confirmed by full-set re-review. | Revised 2026-11-02 by kovyha, re-applying the classification rule strictly (row flagged for re-review by a second-model check): The financials index rose ~2.2% the same day; a payments-product announcement alongside a sector-wide move is mixed evidence. (was: news_driven)",
     "ticker": "BAC"
   },
   {
     "date": "2026-07-08",
-    "label": "news_driven",
-    "notes": "Summary confirms: \"On June 30, Oppenheimer downgraded its rating on Bank of America ... from Outperform to Perform.\" Confirmed by full-set re-review.",
+    "label": "noise",
+    "notes": "Summary confirms: \"On June 30, Oppenheimer downgraded its rating on Bank of America ... from Outperform to Perform.\" Confirmed by full-set re-review. | Revised 2026-11-02 by kovyha, re-applying the classification rule strictly (row flagged for re-review by a second-model check): The Oppenheimer downgrade cited in the original note was dated June 30, eight days earlier; nothing that day explains the move. (was: news_driven)",
     "ticker": "BAC"
   },
   {
     "date": "2026-04-22",
-    "label": "news_driven",
-    "notes": "Summary reveals a specific catalyst previously hidden in the headline: shares rose \"as traders latch onto the company's tongue-in-cheek trade-in promotion.\" Confirmed by full-set re-review.",
+    "label": "ambiguous",
+    "notes": "Summary reveals a specific catalyst previously hidden in the headline: shares rose \"as traders latch onto the company's tongue-in-cheek trade-in promotion.\" Confirmed by full-set re-review. | Revised 2026-11-02 by kovyha, re-applying the classification rule strictly (row flagged for re-review by a second-model check): The only explainer credits a tongue-in-cheek trade-in promotion, on a meme-frenzy day (Avis up ~600%); too thin to call the driver. (was: news_driven)",
     "ticker": "GME"
   },
   {
     "date": "2026-05-01",
-    "label": "news_driven",
-    "notes": "Summary confirms: \"GameStop has been building a stake in eBay's shares and could submit an offer later this month, the Wall Street Journal reported\" \u2014 major, clearly identified news. Confirmed by full-set re-review.",
+    "label": "ambiguous",
+    "notes": "Summary confirms: \"GameStop has been building a stake in eBay's shares and could submit an offer later this month, the Wall Street Journal reported\" \u2014 major, clearly identified news. Confirmed by full-set re-review. | Revised 2026-11-02 by kovyha, re-applying the classification rule strictly (row flagged for re-review by a second-model check): The WSJ eBay report broke after the close (shares moved in after-hours trading), so it explains the next session, not this day's close-to-close move. (was: news_driven)",
     "ticker": "GME"
   },
   {
@@ -229,8 +229,8 @@
   },
   {
     "date": "2026-06-26",
-    "label": "news_driven",
-    "notes": "Summary confirms a specific guidance raise: FY26 adjusted EBITDA outlook lifted to $600M+ vs $345.4M in FY25, in a company release. Confirmed by full-set re-review.",
+    "label": "ambiguous",
+    "notes": "Summary confirms a specific guidance raise: FY26 adjusted EBITDA outlook lifted to $600M+ vs $345.4M in FY25, in a company release. Confirmed by full-set re-review. | Revised 2026-11-02 by kovyha, re-applying the classification rule strictly (row flagged for re-review by a second-model check): The guidance raise came after hours ('GME jumps after-hours'), so it explains the next session, not this day's move. (was: news_driven)",
     "ticker": "GME"
   },
   {
@@ -247,8 +247,8 @@
   },
   {
     "date": "2026-05-11",
-    "label": "news_driven",
-    "notes": "Summary confirms PLUG's own report: \"Plug Power beats Q1 2026 estimates with $163.5M revenue and a narrower loss.\" Confirmed by full-set re-review.",
+    "label": "ambiguous",
+    "notes": "Summary confirms PLUG's own report: \"Plug Power beats Q1 2026 estimates with $163.5M revenue and a narrower loss.\" Confirmed by full-set re-review. | Revised 2026-11-02 by kovyha, re-applying the classification rule strictly (row flagged for re-review by a second-model check): Earnings were released after the close (call at 4:30pm); the one intraday explainer credits clean-energy sector positioning. (was: news_driven)",
     "ticker": "PLUG"
   },
   {
@@ -289,8 +289,8 @@
   },
   {
     "date": "2026-07-07",
-    "label": "news_driven",
-    "notes": "Full-set re-review found a same-day SEC 8-K filing \u2014 \"ExxonMobil Announces Changes In Liquids Prices To Affect Q2 Upstream Results By $3.5B-$3.9B\" \u2014 paired with \"XOM Stock Posts Best Day In Over Five Months,\" a dated, quantified, ticker-specific guidance update the press explicitly credits for the move. Revised from ambiguous after the full re-read.",
+    "label": "ambiguous",
+    "notes": "Full-set re-review found a same-day SEC 8-K filing \u2014 \"ExxonMobil Announces Changes In Liquids Prices To Affect Q2 Upstream Results By $3.5B-$3.9B\" \u2014 paired with \"XOM Stock Posts Best Day In Over Five Months,\" a dated, quantified, ticker-specific guidance update the press explicitly credits for the move. Revised from ambiguous after the full re-read. | Revised 2026-11-02 by kovyha, re-applying the classification rule strictly (row flagged for re-review by a second-model check): The 8-K is real, but it quantifies the same oil-price spike that lifted Chevron and the sector that afternoon; mixed evidence. (was: news_driven)",
     "ticker": "XOM"
   },
   {
@@ -313,8 +313,8 @@
   },
   {
     "date": "2026-06-17",
-    "label": "news_driven",
-    "notes": "Multiple named commentators (Cramer, Sosnoff, Black) explicitly discussing a meme-stock rally reversal and selling pressure specific to SPCX post-IPO. Confirmed by full-set re-review.",
+    "label": "noise",
+    "notes": "Multiple named commentators (Cramer, Sosnoff, Black) explicitly discussing a meme-stock rally reversal and selling pressure specific to SPCX post-IPO. Confirmed by full-set re-review. | Revised 2026-11-02 by kovyha, re-applying the classification rule strictly (row flagged for re-review by a second-model check): No company event; the headlines are commentary on the stock's own post-IPO reversal and options listing. Mean reversion after a ~50% run. (was: news_driven)",
     "ticker": "SPCX"
   }
 ]

@@ -9,6 +9,7 @@ import anthropic
 import pytest
 
 from financial_news import evaluation
+from financial_news.config import LLMConfig
 from financial_news.enrichment import EnrichmentConfig
 
 # ── precision_recall_f1 ─────────────────────────────────────────────────────
@@ -318,7 +319,7 @@ def test_predict_full_system_parses_news_driven_verdict(monkeypatch):
         ],
     )
     mock_client = MagicMock()
-    mock_client.messages.create.return_value = _text_response(
+    mock_client.beta.messages.create.return_value = _text_response(
         "VERDICT: news_driven | REASON: earnings beat"
     )
     monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
@@ -337,7 +338,7 @@ def test_predict_full_system_parses_noise_verdict(monkeypatch):
         ],
     )
     mock_client = MagicMock()
-    mock_client.messages.create.return_value = _text_response(
+    mock_client.beta.messages.create.return_value = _text_response(
         "VERDICT: noise | REASON: thin liquidity"
     )
     monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
@@ -349,7 +350,9 @@ def test_predict_full_system_parses_noise_verdict(monkeypatch):
 def test_predict_full_system_unparseable_response_defaults_to_noise(monkeypatch):
     monkeypatch.setattr(evaluation, "score_headlines", lambda articles, *_: [])
     mock_client = MagicMock()
-    mock_client.messages.create.return_value = _text_response("not a valid verdict")
+    mock_client.beta.messages.create.return_value = _text_response(
+        "not a valid verdict"
+    )
     monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
 
     is_real, _ = evaluation.predict_full_system(
@@ -364,7 +367,7 @@ def test_predict_full_system_without_finbert_skips_scoring_and_tags(monkeypatch)
 
     monkeypatch.setattr(evaluation, "score_headlines", _fail)
     mock_client = MagicMock()
-    mock_client.messages.create.return_value = _text_response(
+    mock_client.beta.messages.create.return_value = _text_response(
         "VERDICT: news_driven | REASON: guidance cut"
     )
     monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
@@ -378,7 +381,7 @@ def test_predict_full_system_without_finbert_skips_scoring_and_tags(monkeypatch)
     )
 
     assert is_real is True
-    prompt = mock_client.messages.create.call_args.kwargs["messages"][0]["content"]
+    prompt = mock_client.beta.messages.create.call_args.kwargs["messages"][0]["content"]
     # max_articles=5: most recent five kept, in order, with no sentiment tags
     assert "- Headline 0\n- Headline 1" in prompt
     assert "Headline 4" in prompt
@@ -389,7 +392,7 @@ def test_predict_full_system_without_finbert_skips_scoring_and_tags(monkeypatch)
 def test_predict_full_system_default_prompt_includes_both_zscores(monkeypatch):
     monkeypatch.setattr(evaluation, "score_headlines", lambda articles, *_: [])
     mock_client = MagicMock()
-    mock_client.messages.create.return_value = _text_response("VERDICT: noise")
+    mock_client.beta.messages.create.return_value = _text_response("VERDICT: noise")
     monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
 
     evaluation.predict_full_system(
@@ -397,7 +400,7 @@ def test_predict_full_system_default_prompt_includes_both_zscores(monkeypatch):
         _enrich_cfg(),
     )
 
-    kwargs = mock_client.messages.create.call_args.kwargs
+    kwargs = mock_client.beta.messages.create.call_args.kwargs
     assert kwargs["messages"][0]["content"] == (
         "Ticker: NVDA\nDate: 2026-01-15\n"
         "Price move: +5.00% (z=3.00, unusual)\n"
@@ -410,7 +413,7 @@ def test_predict_full_system_default_prompt_includes_both_zscores(monkeypatch):
 def test_predict_full_system_without_news_zscore_keeps_price_zscore(monkeypatch):
     monkeypatch.setattr(evaluation, "score_headlines", lambda articles, *_: [])
     mock_client = MagicMock()
-    mock_client.messages.create.return_value = _text_response("VERDICT: noise")
+    mock_client.beta.messages.create.return_value = _text_response("VERDICT: noise")
     monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
 
     evaluation.predict_full_system(
@@ -419,7 +422,7 @@ def test_predict_full_system_without_news_zscore_keeps_price_zscore(monkeypatch)
         include_news_zscore=False,
     )
 
-    kwargs = mock_client.messages.create.call_args.kwargs
+    kwargs = mock_client.beta.messages.create.call_args.kwargs
     prompt = kwargs["messages"][0]["content"]
     assert "News volume" not in prompt
     assert "z=2.50" not in prompt
@@ -641,7 +644,9 @@ def test_run_report_combines_all_baselines(monkeypatch):
     monkeypatch.setattr(evaluation, "predict_news_zscore_only", lambda c, t: True)
     monkeypatch.setattr(evaluation, "predict_name_mention", lambda c, t: True)
     monkeypatch.setattr(
-        evaluation, "predict_full_system", lambda c, cfg: (True, "reasoning text")
+        evaluation,
+        "predict_full_system",
+        lambda c, cfg, llm: (True, f"reasoning text ({llm.model})"),
     )
 
     report = evaluation.run_report(candidates, labels, _fake_config())
@@ -655,7 +660,8 @@ def test_run_report_combines_all_baselines(monkeypatch):
     )
     assert report["name_mention"][0.25]["precision"] == 1.0
     assert report["full_system"]["precision"] == 1.0
-    assert report["full_system_reasoning"] == ["reasoning text"]
+    # The judge gets the [llm] config from the run config.
+    assert report["full_system_reasoning"] == ["reasoning text (claude-opus-5-5)"]
 
 
 def test_run_report_price_zscore_sensitivity_excludes_threshold_elevated(
@@ -673,7 +679,9 @@ def test_run_report_price_zscore_sensitivity_excludes_threshold_elevated(
     }
     cfg = _fake_config()
     monkeypatch.setattr(
-        evaluation, "predict_full_system", lambda c, cfg: (True, "reasoning text")
+        evaluation,
+        "predict_full_system",
+        lambda c, cfg, llm: (True, f"reasoning text ({llm.model})"),
     )
 
     report = evaluation.run_report(candidates, labels, cfg)
@@ -702,7 +710,7 @@ def _sample_report() -> dict:
         "news_zscore_only": {2.0: metrics},
         "name_mention": {0.5: metrics},
         "full_system": metrics,
-        "full_system_reasoning": ["reasoning text"],
+        "full_system_reasoning": ["reasoning text (claude-opus-5-5)"],
     }
 
 
@@ -773,7 +781,8 @@ def test_run_ablation_assembles_all_arms(monkeypatch, tmp_path):
     candidates, labels, full_path, finbert_path = _ablation_fixture(tmp_path)
     calls = []
 
-    def _fake_predict(c, cfg, use_finbert=True, include_news_zscore=True):
+    def _fake_predict(c, cfg, use_finbert=True, include_news_zscore=True, llm=None):
+        assert llm is not None, "run_ablation must pass the [llm] config"
         calls.append((c["ticker"], use_finbert, include_news_zscore))
         # F+L right on both; L alone calls everything noise
         return (use_finbert and c["ticker"] == "NVDA"), f"{use_finbert} {c['ticker']}"
@@ -949,3 +958,36 @@ def test_main_defaults_to_report_command(monkeypatch, capsys):
 
     assert exit_code == 0
     assert "BASELINE COMPARISON" in capsys.readouterr().out
+
+
+def test_predict_full_system_uses_llm_config(monkeypatch):
+    """Model, effort and fallback come from [llm], with room for thinking."""
+    monkeypatch.setattr(evaluation, "score_headlines", lambda articles, *_: [])
+    mock_client = MagicMock()
+    mock_client.beta.messages.create.return_value = _text_response("VERDICT: noise")
+    monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
+
+    evaluation.predict_full_system(
+        _make_candidate(articles=[]),
+        _enrich_cfg(),
+        llm=LLMConfig(model="claude-sonnet-5-5", effort="low"),
+    )
+
+    kwargs = mock_client.beta.messages.create.call_args.kwargs
+    assert kwargs["model"] == "claude-sonnet-5-5"
+    assert kwargs["output_config"] == {"effort": "low"}
+    assert kwargs["betas"] == ["server-side-fallback-2026-07-01"]
+    assert kwargs["max_tokens"] == evaluation._MAX_TOKENS
+
+
+def test_predict_full_system_defaults_to_llm_config_defaults(monkeypatch):
+    monkeypatch.setattr(evaluation, "score_headlines", lambda articles, *_: [])
+    mock_client = MagicMock()
+    mock_client.beta.messages.create.return_value = _text_response("VERDICT: noise")
+    monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
+
+    evaluation.predict_full_system(_make_candidate(articles=[]), _enrich_cfg())
+
+    assert mock_client.beta.messages.create.call_args.kwargs["model"] == (
+        LLMConfig().model
+    )

@@ -5,7 +5,7 @@ import json
 import pytest
 
 from financial_news import eval_gate, evaluation
-from financial_news.config import Config
+from financial_news.config import Config, LLMConfig
 
 # ── fixtures ──────────────────────────────────────────────────────────────────
 
@@ -49,7 +49,7 @@ def eval_dir(tmp_path, monkeypatch):
 def _judge(verdicts: dict[str, bool]):
     """A predict_full_system stand-in returning fixed verdicts by ticker."""
 
-    def predict(candidate, enrich_cfg):
+    def predict(candidate, enrich_cfg, llm=None):
         is_news = verdicts[candidate["ticker"]]
         return is_news, f"VERDICT: {'news_driven' if is_news else 'noise'}"
 
@@ -97,7 +97,9 @@ def test_verdict_path_follows_calls_into_helpers():
         "financial_news.sentiment._compose_text",
     } <= names
     assert all(name.startswith("financial_news.") for name in names)
-    assert constants["financial_news.evaluation._MODEL"] == repr(evaluation._MODEL)
+    assert constants["financial_news.evaluation._MAX_TOKENS"] == repr(
+        evaluation._MAX_TOKENS
+    )
 
 
 def test_resolve_ignores_non_module_attributes():
@@ -116,12 +118,21 @@ def test_normalized_source_keeps_a_body_when_only_a_docstring():
 
 
 @pytest.mark.parametrize(
-    "attr, value",
-    [("_MODEL", "claude-other"), ("_MAX_TOKENS", 999)],
+    "llm",
+    [
+        LLMConfig(model="claude-other"),
+        LLMConfig(effort="high"),
+        LLMConfig(fallback=False),
+    ],
 )
-def test_code_fingerprint_changes_with_model_settings(monkeypatch, attr, value):
+def test_code_fingerprint_changes_with_llm_settings(llm):
     before = eval_gate.code_fingerprint(Config())
-    monkeypatch.setattr(evaluation, attr, value)
+    assert eval_gate.code_fingerprint(Config(llm=llm)) != before
+
+
+def test_code_fingerprint_changes_with_max_tokens(monkeypatch):
+    before = eval_gate.code_fingerprint(Config())
+    monkeypatch.setattr(evaluation, "_MAX_TOKENS", 999)
     assert eval_gate.code_fingerprint(Config()) != before
 
 
@@ -223,9 +234,9 @@ def _write_fingerprint(path, fp):
 
 def test_fingerprint_check_fails_when_committed_is_stale(eval_dir, capsys):
     current = eval_gate.code_fingerprint(Config())
-    _write_fingerprint(eval_gate.FINGERPRINT_PATH, {**current, "claude_model": "old"})
+    _write_fingerprint(eval_gate.FINGERPRINT_PATH, {**current, "claude_request": {}})
     assert eval_gate.fingerprint_check(Config(), None) == (1, False)
-    assert "out of date for: claude_model" in capsys.readouterr().out
+    assert "out of date for: claude_request" in capsys.readouterr().out
 
 
 def test_fingerprint_check_without_base_needs_no_run(eval_dir):
@@ -404,7 +415,7 @@ def test_check_fails_when_candidates_dont_match_checksum(eval_dir, monkeypatch):
 def test_main_fingerprint_check_writes_github_output(eval_dir, monkeypatch):
     fp = eval_gate.full_fingerprint(Config())
     _write_fingerprint(eval_gate.FINGERPRINT_PATH, fp)
-    _write_fingerprint(eval_dir / "base.json", {**fp, "claude_model": "old"})
+    _write_fingerprint(eval_dir / "base.json", {**fp, "claude_request": {}})
     output = eval_dir / "github_output"
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
     code = eval_gate.main(["fingerprint-check", "--base", str(eval_dir / "base.json")])

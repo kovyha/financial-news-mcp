@@ -115,7 +115,7 @@ _LLM_FALLBACK_BETA = "server-side-fallback-2026-07-01"
 class LLMConfig:
     """Claude settings shared by the briefing and diagnostic agents.
 
-    The evaluation harness pins its own model so stored verdicts stay comparable.
+    The evaluation judge uses these too, so the evaluation gate measures a change.
     """
 
     model: str = "claude-opus-5-5"
