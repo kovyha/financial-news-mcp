@@ -33,7 +33,11 @@ REPO_ROOT = PACKAGE_DIR.parent
 # Every runnable module must be listed in exactly one of these.
 DETERMINISTIC_ENTRY_POINTS = {f"{PACKAGE}.server", f"{PACKAGE}.monitor"}
 LLM_ENTRY_POINTS = {f"{PACKAGE}.briefing", f"{PACKAGE}.diagnostic"}
-TOOLING_ENTRY_POINTS = {f"{PACKAGE}.evaluation", f"{PACKAGE}.sandbox"}
+TOOLING_ENTRY_POINTS = {
+    f"{PACKAGE}.evaluation",
+    f"{PACKAGE}.eval_gate",
+    f"{PACKAGE}.sandbox",
+}
 
 HOSTED_LLM_PACKAGES = {"anthropic", "cohere", "google", "mistralai", "openai"}
 # Libraries whose job is running a language model in-process or on localhost.

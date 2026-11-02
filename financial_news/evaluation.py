@@ -485,6 +485,27 @@ def _labeled_rows(
     return rows
 
 
+def run_full_system(
+    rows: list[tuple[dict, Label]], enrich_cfg: EnrichmentConfig
+) -> list[dict]:
+    """Full-system verdict for each labeled row, in the format of
+    eval/baseline3_reasoning.json. Shared by run_report and the evaluation gate.
+    """
+    verdicts = []
+    for candidate, label in rows:
+        is_news_driven, text = predict_full_system(candidate, enrich_cfg)
+        verdicts.append(
+            {
+                "ticker": candidate["ticker"],
+                "date": candidate["date"],
+                "true_label": label.label,
+                "predicted": "news_driven" if is_news_driven else "noise",
+                "reasoning": text,
+            }
+        )
+    return verdicts
+
+
 def _enrich_config(cfg: Config) -> EnrichmentConfig:
     return EnrichmentConfig(
         model_name=cfg.sentiment.model_name,
@@ -544,13 +565,10 @@ def run_report(
         for threshold in mention_thresholds
     }
 
-    enrich_cfg = _enrich_config(cfg)
-    system_pred, system_reasoning = [], []
-    for c, _ in rows:
-        is_real, text = predict_full_system(c, enrich_cfg)
-        system_pred.append(is_real)
-        system_reasoning.append(text)
-    system_result = precision_recall_f1(y_true, system_pred)
+    system_rows = run_full_system(rows, _enrich_config(cfg))
+    system_result = precision_recall_f1(
+        y_true, [r["predicted"] == "news_driven" for r in system_rows]
+    )
 
     return {
         "n_labeled": len(rows),
@@ -558,7 +576,7 @@ def run_report(
         "news_zscore_only": news_zscore_results,
         "name_mention": name_mention_results,
         "full_system": system_result,
-        "full_system_reasoning": system_reasoning,
+        "full_system_reasoning": [r["reasoning"] for r in system_rows],
     }
 
 

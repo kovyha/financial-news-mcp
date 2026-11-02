@@ -8,5 +8,6 @@
 ^uv\.lock$
 ^financial_news/sandbox\.py$
 ^financial_news/approved_models\.py$
+^financial_news/eval_gate\.py$
 ^tests/test_boundary\.py$
 ^tests/test_sandbox_integration\.py$

@@ -123,6 +123,65 @@ FINNHUB_API_KEY=<key> ANTHROPIC_API_KEY=<key> \
 article selection, not as a standalone baseline; see below) and `ANTHROPIC_API_KEY`
 (the full system — one Claude call per labeled candidate).
 
+## Evaluation gate (CI)
+
+The full-system judge is re-run automatically whenever something its verdicts depend
+on changes, and the PR fails if the verdicts got worse.
+[financial_news/eval_gate.py](../financial_news/eval_gate.py) holds the logic. It is a
+protected file, so a PR can't weaken the gate without the maintainer's approval.
+
+**What triggers a re-run.** `eval/fingerprint.json` records:
+
+- the Claude model and `max_tokens`;
+- a hash of the judge's system prompts;
+- a hash of the code on the verdict path and the constants it reads. The gate finds
+  that code by following calls from the judge into every project function it reaches
+  (finBERT article selection, sentiment scoring and their helpers), so a new helper
+  is covered without anyone listing it. Comments, docstrings and formatting are
+  stripped, so only behaviour changes count;
+- the finBERT model and pinned revision, and the article-selection settings;
+- the versions of `anthropic`, `transformers` and `torch` locked in `uv.lock`, since an
+  upgrade can change verdicts;
+- hashes of `eval/labels.json` and of the private candidate pool.
+
+Every PR runs `eval-fingerprint`, which makes no API calls. It fails if the committed
+fingerprint doesn't match the code. It then asks for a re-run if the fingerprint or
+the stored verdicts (`eval/baseline3_reasoning.json`) differ from the base branch's.
+The gate always uses the committed defaults (`Config()`), never a local `config.toml`.
+
+**The re-run.** `eval-run` runs in the `evaluation` GitHub Environment, so it waits
+for the maintainer to approve it before it can spend API credit. It fetches
+`candidates.json` from the private repo `kovyha/financial-news-eval-data` and checks
+it against the committed checksum. It then re-runs the judge on every labeled row and
+makes two checks:
+
+1. **Against the base branch's verdicts.** Net worse = rows that went right → wrong
+   minus rows that went wrong → right. It must be at most max(2, ⌈2% of rows⌉), which
+   is 2 at today's 43 rows. A fixed count would mean something different as the set
+   grows, and 2% alone would allow only 1 row at this size. Two identical runs flipped
+   0 of 43 rows, so the floor of 2 is headroom for nondeterminism not yet seen.
+2. **Against the verdicts this PR commits.** They become the next baseline, so they
+   must be ones the judge reproduces: at most the same number of rows may disagree,
+   and every labeled row must be present.
+
+**Changing something fingerprinted.** Re-run the judge locally, then commit both
+files it writes:
+
+```bash
+ANTHROPIC_API_KEY=<key> uv run python -m financial_news.eval_gate update
+```
+
+It needs `eval/candidates.json` locally and `uv sync --all-groups`. It prints the
+comparison against the stored verdicts, so you see the result before CI does. Update
+the results tables in this doc if the numbers moved.
+
+**Known gaps.**
+
+- The gate measures the evaluation judge's prompt, not the briefing agent's prompt.
+- The `ablate` command reuses stored Z+L verdicts (`eval/finbert_ablation.json`),
+  which the gate doesn't re-run, so after a model change those are from the older
+  model until `ablate` is re-run.
+
 ## Metrics
 
 `precision_recall_f1(y_true, y_pred)` in `financial_news/evaluation.py` is the only
@@ -135,8 +194,8 @@ and `_print_report` renders a plain comparison table.
 
 All LLM results below were produced with `claude-opus-4-7`, which `evaluation.py` still
 uses. The briefing and diagnostic agents moved to `claude-opus-5-5` on 2026-11-02, so these
-numbers don't yet measure the live model. They'll be re-run when the evaluation gate in CI
-lands.
+numbers don't yet measure the live model. They'll be re-run when the judge moves to the
+`[llm]` model, the first change to go through the evaluation gate (above).
 
 53 candidates, 43 scored (31 news_driven / 12 noise; 10 ambiguous excluded).
 

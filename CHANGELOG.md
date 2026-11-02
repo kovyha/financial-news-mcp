@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-02 — Evaluation gate in CI
+
+- New `financial_news/eval_gate.py` (protected) and `eval/fingerprint.json`. The fingerprint records what the evaluation judge's verdicts depend on: its prompts, the code on the verdict path, the Claude model and token limit, the locked versions of `anthropic`, `transformers` and `torch`, the pinned finBERT revision, the article-selection settings, and the labels and candidates.
+- New CI jobs. `eval-fingerprint` runs on every PR with no API calls. `eval-run` runs only when the fingerprint or stored verdicts change, waits for maintainer approval in the `evaluation` environment, and fails if verdicts got net worse by more than max(2, 2% of labeled rows), or if the committed verdicts don't reproduce.
+- `eval/candidates.json` for CI comes from the private repo `kovyha/financial-news-eval-data`, checked against the committed checksum.
+
 ## 2026-11-02 — Enforce the deterministic/LLM boundary at runtime
 
 - The MCP server and monitor now run inside a network sandbox (`financial_news/sandbox.py`, Anthropic's sandbox runtime) that allows only Finnhub, Yahoo Finance and the Grafana endpoint. Both refuse to start outside it. Launch with `python -m financial_news.sandbox {server,monitor}`.

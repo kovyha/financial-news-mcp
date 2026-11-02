@@ -11,7 +11,7 @@ uv sync --all-groups
 ```
 
 The GitHub Actions CI workflow at `.github/workflows/ci.yaml` runs on pull requests and on
-pushes to `main`. It has three jobs:
+pushes to `main`. It has five jobs:
 
 - `lint-and-test` — `uv run ruff format --check .`, `uv run ruff check .`, and
   `uv run pytest --cov=financial_news --cov-report=term-missing -q`.
@@ -19,9 +19,14 @@ pushes to `main`. It has three jobs:
   `tests/test_sandbox_integration.py` is blocked. Locally: `RUN_SANDBOX_TESTS=1 uv run
   pytest tests/test_sandbox_integration.py --no-cov` (needs Node.js).
 - `protected-files` — PRs only; see below.
+- `eval-fingerprint` — PRs only, no API calls. Fails if `eval/fingerprint.json` is out of
+  date, and decides whether `eval-run` is needed.
+- `eval-run` — PRs only, and only when the evaluation fingerprint or stored verdicts
+  changed. Waits for the maintainer to approve it, then re-runs the evaluation judge and
+  fails if the verdicts got worse. See "Evaluation gate" in `docs/evaluation.md`.
 
-Changes reach `main` only through a PR. Branch protection requires all three jobs to pass,
-with no bypass.
+Changes reach `main` only through a PR. Branch protection requires every job to pass,
+with no bypass. A skipped `eval-run` counts as passed.
 
 Run the validation flow before submitting changes:
 
@@ -60,6 +65,11 @@ Before approving a PR, verify:
         is intentional and necessary, then add the `protected-change-approved` label.
       - If the label is already on and new commits arrive, re-review them: the label
         stays on until removed.
+
+### Evaluation gate
+- [ ] Is `eval-run` waiting for approval? Check what changed in `eval/fingerprint.json`
+      and that the change is meant to affect the judge before approving: the run spends
+      Anthropic API credit.
 
 ### Agent roles
 - [ ] Does this PR introduce or modify any agent roles?
