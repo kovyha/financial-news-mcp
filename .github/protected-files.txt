@@ -1,0 +1,12 @@
+^docs/AGENTS\.md$
+^docs/SKILL\.md$
+^\.github/workflows/
+^\.github/actions/
+^\.github/CODEOWNERS$
+^\.github/protected-files\.txt$
+^\.claude/settings\.json$
+^uv\.lock$
+^financial_news/sandbox\.py$
+^financial_news/approved_models\.py$
+^tests/test_boundary\.py$
+^tests/test_sandbox_integration\.py$

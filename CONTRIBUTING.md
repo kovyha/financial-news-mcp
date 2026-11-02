@@ -10,8 +10,18 @@ Install the project and all dependency groups (including `diagnostic`, which pro
 uv sync --all-groups
 ```
 
-The repository includes a minimal GitHub Actions CI workflow at `.github/workflows/ci.yaml`.
-It runs `uv run ruff format --check .`, `uv run ruff check .`, and `uv run pytest --cov=financial_news --cov-report=term-missing -q` on pushes and pull requests.
+The GitHub Actions CI workflow at `.github/workflows/ci.yaml` runs on pull requests and on
+pushes to `main`. It has three jobs:
+
+- `lint-and-test` — `uv run ruff format --check .`, `uv run ruff check .`, and
+  `uv run pytest --cov=financial_news --cov-report=term-missing -q`.
+- `sandbox` — runs the real network sandbox on Linux and checks every escape route in
+  `tests/test_sandbox_integration.py` is blocked. Locally: `RUN_SANDBOX_TESTS=1 uv run
+  pytest tests/test_sandbox_integration.py --no-cov` (needs Node.js).
+- `protected-files` — PRs only; see below.
+
+Changes reach `main` only through a PR. Branch protection requires all three jobs to pass,
+with no bypass.
 
 Run the validation flow before submitting changes:
 
@@ -43,9 +53,13 @@ Before approving a PR, verify:
       - See `docs/SKILL.md` for the full boundary checklist
 
 ### Protected files
-- [ ] Does this PR modify `.github/workflows/ci.yaml`, `uv.lock`, `docs/AGENTS.md`, or
-      `docs/SKILL.md`?
-      - If yes: verify it's intentional and necessary
+- [ ] Does this PR modify a file in `.github/protected-files.txt` (governance docs,
+      workflows, `uv.lock`, the sandbox and its allowlist, approved models, or the
+      boundary tests)?
+      - If yes: the `protected-files` check fails until you approve it. Verify the change
+        is intentional and necessary, then add the `protected-change-approved` label.
+      - If the label is already on and new commits arrive, re-review them: the label
+        stays on until removed.
 
 ### Agent roles
 - [ ] Does this PR introduce or modify any agent roles?

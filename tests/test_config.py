@@ -600,13 +600,26 @@ def test_sentiment_model_name_from_env(tmp_path, monkeypatch):
 
 def test_sentiment_model_env_ignored_when_config_file_present(tmp_path, monkeypatch):
     """SENTIMENT_MODEL_NAME env var is ignored when config.toml is present."""
-    monkeypatch.setenv("SENTIMENT_MODEL_NAME", "ProsusAI/finbert")
+    monkeypatch.setenv("SENTIMENT_MODEL_NAME", "some-org/unapproved-model")
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[sentiment]\nmodel_name = "ProsusAI/finbert"\n')
+    cfg = load_config(path=config_file)
+    assert cfg.sentiment.model_name == "ProsusAI/finbert"
+
+
+def test_sentiment_unapproved_model_in_file_raises(tmp_path):
     config_file = tmp_path / "config.toml"
     config_file.write_text(
         '[sentiment]\nmodel_name = "ahmedrachid/FinancialBERT-Sentiment-Analysis"\n'
     )
-    cfg = load_config(path=config_file)
-    assert cfg.sentiment.model_name == "ahmedrachid/FinancialBERT-Sentiment-Analysis"
+    with pytest.raises(ValueError, match="not an approved sentiment model"):
+        load_config(path=config_file)
+
+
+def test_sentiment_unapproved_model_from_env_raises(tmp_path, monkeypatch):
+    monkeypatch.setenv("SENTIMENT_MODEL_NAME", "some-org/unapproved-model")
+    with pytest.raises(ValueError, match="SENTIMENT_MODEL_NAME .* not an approved"):
+        load_config(path=tmp_path / "config.toml")
 
 
 # ── [llm] ─────────────────────────────────────────────────────────────────────

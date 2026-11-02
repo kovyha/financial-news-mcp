@@ -125,7 +125,7 @@ max_headlines = 50
 
 # HuggingFace model used for finBERT headline sentiment scoring.
 # Requires the `sentiment` dependency group: uv sync --group sentiment
-# Alternatives: "ahmedrachid/FinancialBERT-Sentiment-Analysis"
+# Must be listed, and pinned to a commit, in financial_news/approved_models.py.
 # Default: "ProsusAI/finbert"
 # model_name = "ProsusAI/finbert"
 

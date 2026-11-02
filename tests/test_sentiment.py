@@ -185,6 +185,15 @@ def test_score_headlines_custom_valid_labels(monkeypatch):
     assert results[0]["label"] == "bullish"
 
 
+def test_get_pipeline_refuses_unapproved_model(monkeypatch, caplog):
+    """An unapproved model is never loaded, even if passed in directly."""
+    monkeypatch.setattr(sentiment, "_pipeline_attempted", False)
+    monkeypatch.setattr(sentiment, "_pipeline_model", None)
+    monkeypatch.setattr(sentiment, "_pipeline", None)
+    assert sentiment._get_pipeline("some-org/unapproved-model") is None
+    assert "refusing to load unapproved sentiment model" in caplog.text
+
+
 def test_score_headlines_unavailable_when_pipeline_is_none(monkeypatch):
     """Returns unavailable entries when pipeline could not be loaded."""
     monkeypatch.setattr(

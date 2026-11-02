@@ -17,7 +17,7 @@ import pandas as pd
 import yfinance as yf
 
 from financial_news.config import load_config
-from financial_news.timeseries import ewma_mean_std
+from financial_news.timeseries import ewma_mean_std, winsorize
 
 logger = logging.getLogger(__name__)
 
@@ -74,26 +74,6 @@ def _validate_price_thresholds() -> None:
 
 
 _validate_price_thresholds()
-
-
-def _winsorize_two_sided(values: list[float], k: float) -> list[float]:
-    """Cap both-tail outliers in *values* at median +/- k * MAD.
-
-    Two-sided: unlike article counts, daily returns move in either direction, so
-    a single extreme historical day (crash or spike) in either tail could
-    otherwise inflate the EWM std and mask a genuinely unusual day. If MAD is 0
-    (no dispersion around the median), values are returned unchanged.
-    """
-    if not values:
-        return values
-    series = pd.Series(values, dtype=float)
-    median = series.median()
-    mad = (series - median).abs().median()
-    if mad == 0:
-        return values
-    lower = median - k * mad
-    upper = median + k * mad
-    return series.clip(lower=lower, upper=upper).tolist()
 
 
 def calculate_price_z_score(return_pct: float, mean: float, std: float) -> float:
@@ -203,7 +183,12 @@ def compute_price_stats(symbol: str, as_of_date: date | None = None) -> dict:
 
     baseline_returns = completed.pct_change().dropna().tolist()[-PRICE_BASELINE_DAYS:]
 
-    winsorized_returns = _winsorize_two_sided(baseline_returns, k=PRICE_WINSORIZE_K)
+    # Two-sided: unlike article counts, daily returns move in either direction, so a
+    # single extreme day (crash or spike) in either tail could otherwise inflate the
+    # EWM std and mask a genuinely unusual day.
+    winsorized_returns = winsorize(
+        baseline_returns, k=PRICE_WINSORIZE_K, two_sided=True
+    )
     mean, std = ewma_mean_std(winsorized_returns, span=PRICE_BASELINE_DAYS)
 
     z_score = calculate_price_z_score(return_pct, mean, std)

@@ -2,10 +2,13 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 
 jobs:
   protected-files:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
 
     steps:
@@ -15,21 +18,29 @@ jobs:
           fetch-depth: 0
 
       - name: Block protected file changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          APPROVED: ${{ contains(github.event.pull_request.labels.*.name, 'protected-change-approved') }}
         run: |
-          if git diff origin/main...HEAD --name-only 2>/dev/null | grep -E '(docs/AGENTS\.md|docs/SKILL\.md|\.github/workflows/ci\.yaml|uv\.lock)'; then
-            echo "❌ ERROR: Protected files were modified."
-            echo ""
-            echo "Protected files require explicit human review and cannot be changed by agents:"
-            echo "  - docs/AGENTS.md (agent governance catalog)"
-            echo "  - docs/SKILL.md (agent behavioral constraints)"
-            echo "  - .github/workflows/ci.yaml (CI configuration)"
-            echo "  - uv.lock (locked dependencies)"
-            echo ""
-            echo "If this change is intentional, add [ADMIN-OVERRIDE] to your commit message"
-            echo "and request explicit human review."
-            exit 1
+          # Read the list from the base branch, so a PR can't shorten its own check.
+          # (Falls back to the PR's copy only until the list first lands on main.)
+          git show "$BASE_SHA:.github/protected-files.txt" > /tmp/protected 2>/dev/null \
+            || cp .github/protected-files.txt /tmp/protected
+          changed=$(git diff --name-only "$BASE_SHA"...HEAD | grep -E -f /tmp/protected || true)
+          if [ -z "$changed" ]; then
+            echo "✅ No protected files modified."
+            exit 0
           fi
-          echo "✅ No protected files modified."
+          echo "Protected files modified:"
+          echo "$changed"
+          if [ "$APPROVED" = "true" ]; then
+            echo "✅ Approved by a maintainer via the 'protected-change-approved' label."
+            exit 0
+          fi
+          echo ""
+          echo "❌ Protected files need a maintainer to review the change and add the"
+          echo "'protected-change-approved' label to this PR. See CONTRIBUTING.md."
+          exit 1
 
   lint-and-test:
     runs-on: ubuntu-latest
@@ -53,10 +64,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface/hub
-          key: hf-${{ runner.os }}-ProsusAI-finbert
+          key: hf-${{ runner.os }}-${{ hashFiles('financial_news/approved_models.py') }}
 
-      - name: Pre-download finBERT model
-        run: uv run python -c "from transformers import pipeline; pipeline('text-classification', model='ProsusAI/finbert', device=-1)"
+      - name: Pre-download approved finBERT model at its pinned revision
+        run: uv run python -m financial_news.sandbox prefetch-model
 
       - name: Format check
         run: uv run ruff format --check .
@@ -66,3 +77,29 @@ jobs:
 
       - name: Test
         run: uv run pytest --cov=financial_news --cov-report=term-missing -q
+
+  sandbox:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up sandbox runtime
+        uses: ./.github/actions/setup-sandbox
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Try every escape route from inside the sandbox
+        env:
+          RUN_SANDBOX_TESTS: "1"
+        run: uv run pytest tests/test_sandbox_integration.py -v --no-cov

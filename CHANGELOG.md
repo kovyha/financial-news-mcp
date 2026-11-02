@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-11-02 — Enforce the deterministic/LLM boundary at runtime
+
+- The MCP server and monitor now run inside a network sandbox (`financial_news/sandbox.py`, Anthropic's sandbox runtime) that allows only Finnhub, Yahoo Finance and the Grafana endpoint. Both refuse to start outside it. Launch with `python -m financial_news.sandbox {server,monitor}`.
+- Sentiment models must be listed in `financial_news/approved_models.py`, pinned to a Hugging Face commit; the server loads finBERT offline. A failed model load now logs at ERROR.
+- `tests/test_boundary.py` now follows imports from the entry points instead of a hand-kept module list, and also checks for local model runtimes, MCP sampling, dynamic imports, committed weights, and unclassified entry points.
+- New `tests/test_sandbox_integration.py` and CI `sandbox` job try real escape routes against the sandbox on Linux.
+- The protected-files check now runs on PRs, reads its list from `main` (`.github/protected-files.txt`), and is approved with the `protected-change-approved` label. CODEOWNERS points at `@kovyha`. `.claude/settings.json` denies agent pushes to `main`.
+- Duplication removed: one `winsorize` in `timeseries.py` (one- or two-sided) replaces the copies in `analysis.py` and `price.py`; one `setup-sandbox` action for both workflows; protected-file and review-gate details now live only in `docs/SKILL.md`.
+- Docs corrected: finBERT runs inside `get_news_volume`, so the claim is "no LLM inference", not "no model inference".
+
 ## 2026-11-02 — Move the briefing and diagnostic agents to Claude Opus 5.5
 
 - The briefing and diagnostic agents moved from Claude Opus 4.7 to Opus 5.5, with effort set explicitly to medium and Anthropic's server-side fallback enabled. All three settings live in one `LLMConfig`, overridable from a new `[llm]` section in `config.toml`. `max_tokens` rises to 16000 for both (from 4096 in the briefing and 8192 in the diagnostic), which raises the cost ceiling per call. The evaluation harness stays on Opus 4.7 until it's re-run, so its published results remain accurate (see `docs/evaluation.md`).

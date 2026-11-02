@@ -7,11 +7,10 @@ from functools import lru_cache
 from zoneinfo import ZoneInfo
 
 import finnhub
-import pandas as pd
 import pandas_market_calendars as mcal
 
 from financial_news.config import load_config
-from financial_news.timeseries import ewma_mean_std
+from financial_news.timeseries import ewma_mean_std, winsorize
 
 logger = logging.getLogger(__name__)
 
@@ -130,26 +129,6 @@ def _exchange_tz(symbol: str) -> ZoneInfo:
     return mcal.get_calendar("NYSE").tz
 
 
-def _winsorize_upper(values: list[float], k: float) -> list[float]:
-    """Cap upper-tail outliers in *values* at median + k * MAD.
-
-    One-sided: baseline article counts are floored at 0 and right-skewed, so
-    only high outlier days (e.g. an old spike headline) need capping before
-    they inflate the EWM std. If MAD is 0 (no dispersion around the median —
-    common with sparse, mostly-zero baselines), values are returned unchanged
-    rather than collapsing every above-median point down to the median.
-    """
-    if not values:
-        return values
-    series = pd.Series(values, dtype=float)
-    median = series.median()
-    mad = (series - median).abs().median()
-    if mad == 0:
-        return values
-    cap = median + k * mad
-    return series.clip(upper=cap).tolist()
-
-
 def fetch_news(symbol: str, from_date: date, to_date: date) -> list:
     logger.debug(
         "fetch_news symbol=%s from=%s to=%s",
@@ -253,7 +232,10 @@ def compute_volume_stats(symbol: str, as_of_date: date | None = None) -> dict:
         baseline_counts.append(float(article_date_counts.get(current, 0)))
         current += timedelta(days=1)
 
-    winsorized_counts = _winsorize_upper(baseline_counts, k=WINSORIZE_K)
+    # One-sided: article counts are floored at 0 and right-skewed, so only high
+    # outlier days (e.g. an old spike headline) need capping before they inflate
+    # the EWM std.
+    winsorized_counts = winsorize(baseline_counts, k=WINSORIZE_K, two_sided=False)
     mean, std = ewma_mean_std(winsorized_counts, span=BASELINE_DAYS)
 
     recent_count = len(recent)

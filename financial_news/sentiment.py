@@ -12,6 +12,8 @@ Gracefully degrades to label='unavailable' when the group is not installed.
 
 import logging
 
+from financial_news.approved_models import APPROVED_SENTIMENT_MODELS
+
 logger = logging.getLogger(__name__)
 
 # Module-level pipeline state — loaded once on first call to score_headlines.
@@ -32,6 +34,10 @@ def _get_pipeline(model_name: str):
     _pipeline_attempted = True
     _pipeline_model = model_name
     _pipeline = None
+    revision = APPROVED_SENTIMENT_MODELS.get(model_name)
+    if revision is None:
+        logger.error("refusing to load unapproved sentiment model %r", model_name)
+        return None
     try:
         from transformers import pipeline  # type: ignore[import]
 
@@ -39,16 +45,19 @@ def _get_pipeline(model_name: str):
             "text-classification",
             model=model_name,
             tokenizer=model_name,
+            revision=revision,
             device=-1,  # CPU
         )
-        logger.info("finBERT pipeline loaded (model=%s)", model_name)
+        logger.info(
+            "finBERT pipeline loaded (model=%s revision=%s)", model_name, revision
+        )
     except ImportError:
         logger.warning(
             "transformers not installed; finBERT unavailable — install with "
             "`uv sync --group sentiment`"
         )
     except Exception as exc:
-        logger.warning("finBERT pipeline load failed: %s", exc)
+        logger.error("finBERT pipeline load failed: %s", exc)
     return _pipeline
 
 

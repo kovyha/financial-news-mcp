@@ -22,7 +22,7 @@ Every morning before the US market opens, the daily briefing agent scans the wat
 
 The architecture maintains an explicit boundary between two layers:
 
-**Deterministic signal layer** (`get_news_volume` MCP tool): fetches data from Finnhub, computes article counts, a 30-day exponentially weighted mean and standard deviation using pandas, and classifies the result against configurable thresholds (default: z < 2 = normal, z < 3 = elevated, z ≥ 3 = unusual). No model inference occurs here. Output is a structured, reproducible dict.
+**Deterministic signal layer** (`get_news_volume` MCP tool): fetches data from Finnhub, computes article counts, a 30-day exponentially weighted mean and standard deviation using pandas, and classifies the result against configurable thresholds (default: z < 2 = normal, z < 3 = elevated, z ≥ 3 = unusual). No LLM inference occurs here. finBERT runs locally as a preprocessing step to score and select articles; it doesn't affect the z-score or classification, and articles are labelled `unavailable` if the `sentiment` group isn't installed. Output is a structured dict.
 
 A second tool, **`get_price_move`**, mirrors this signal for price: it fetches daily price history via yfinance (no API key required), computes a volatility-normalized return z-score against an EWM baseline of prior daily returns, and classifies it the same way — expressed in the same z-score units so it can be directly compared against the news-volume signal.
 
@@ -31,6 +31,36 @@ A third tool, **`get_price_intraday`**, is a same-day attribution drill-down rat
 **LLM reasoning layer** (Claude, via MCP): receives that structured output as tool context and interprets what a statistically significant spike may mean — drawing on the headlines, article summaries, sentiment scores, and its broader knowledge.
 
 This boundary is intentional. In any regulated or auditable environment you can demonstrate precisely what data was fetched, what was computed deterministically, and exactly where model judgement begins.
+
+### How the boundary is enforced
+
+A written rule that the deterministic layer doesn't call an LLM is only advice. Here it's enforced in two layers.
+
+**At runtime, by a network sandbox.** A hosted LLM call has to send the prompt over the network, whatever library or code makes it. So the MCP server and the monitor run inside [Anthropic's sandbox runtime](https://www.npmjs.com/package/@anthropic-ai/sandbox-runtime), which blocks every destination at the operating-system level except Finnhub, Yahoo Finance and the Grafana endpoint ([financial_news/sandbox.py](financial_news/sandbox.py)). Both processes refuse to start outside it, LLM API keys are removed from their environment, and finBERT loads offline. [tests/test_sandbox_integration.py](tests/test_sandbox_integration.py) tries real escape routes on every PR and checks each one is blocked:
+
+- OpenAI, Anthropic, other providers and Hugging Face, through Python's own networking
+- the same calls through `curl_cffi`, the compiled HTTP library yfinance uses, including with the proxy turned off
+- a `curl` subprocess, including one told to ignore the proxy
+- a raw socket to a hardcoded IP address
+- a model server listening on `localhost`
+
+A control run without the sandbox confirms those routes are really open, so the test isn't passing vacuously.
+
+**Statically, by tests that run before the code does.** [tests/test_boundary.py](tests/test_boundary.py) follows every import reachable from the server and monitor, including imports inside functions, and fails on:
+
+- LLM client libraries and local model runtimes, including any in the lockfile
+- MCP sampling (asking the client to run an LLM, which needs no network call)
+- generative pipelines, dynamic imports, and LLM provider URLs
+- model weights committed to the repo
+- sentiment models that aren't approved and pinned to a commit
+- a runnable module that isn't declared deterministic, LLM or tooling, or a deterministic one that doesn't require the sandbox
+
+**What this doesn't cover:**
+
+- **AI features on an allowed host:** the sandbox checks where traffic goes, not what it does, so a future AI endpoint on Finnhub or Yahoo would pass.
+- **A model loaded in-process by an unfamiliar library:** it makes no network call. Weights can only arrive through a dependency change (`uv.lock` is protected) or a committed file (rejected by test), but a new runtime that isn't on the list would get past the static check.
+- **Determined code:** the sandbox is enforced by the operating system, but the static tests are pattern checks, not proof.
+- **Changes to the guards themselves:** the sandbox, its allowlist, the approved models and the boundary tests are protected files. A PR that changes them fails CI until the maintainer approves it.
 
 ### Agents
 
@@ -78,6 +108,7 @@ The GitHub Actions `monitor.yaml` workflow runs daily at 12:00 UTC (8am ET, pre-
 - Python 3.12+
 - `uv`
 - `FINNHUB_API_KEY` environment variable (news data; `get_price_move`'s yfinance data source needs no API key)
+- Node.js, for the network sandbox (`npx` fetches the pinned sandbox runtime on first use). On Linux, also `bubblewrap`, `socat` and `ripgrep`.
 
 ### Install
 
@@ -85,17 +116,26 @@ The GitHub Actions `monitor.yaml` workflow runs daily at 12:00 UTC (8am ET, pre-
 uv sync
 ```
 
-For finBERT sentiment scoring (required by the briefing agent):
+For finBERT sentiment scoring (used by the MCP server and the briefing agent), install the group and download the approved model at its pinned revision. The server loads it offline, so this step is needed once:
 
 ```bash
 uv sync --group sentiment
+uv run python -m financial_news.sandbox prefetch-model
 ```
 
 ### Run the MCP server
 
 ```bash
-FINNHUB_API_KEY=<key> uv run python -m financial_news.server
+FINNHUB_API_KEY=<key> uv run python -m financial_news.sandbox server
 ```
+
+To register it with Claude Code:
+
+```bash
+claude mcp add financial-news -- uv run --project /path/to/financial-news-mcp python -m financial_news.sandbox server
+```
+
+Starting `python -m financial_news.server` directly exits with "Refusing to start outside the network sandbox".
 
 ### Run the daily briefing
 
@@ -111,7 +151,7 @@ uv run python -m financial_news.briefing
 FINNHUB_API_KEY=<key> \
 GRAFANA_CLOUD_OTLP_ENDPOINT=<url> \
 GRAFANA_CLOUD_BASIC_AUTH_HEADER="Basic <token>" \
-uv run python -m financial_news.monitor
+uv run python -m financial_news.sandbox monitor
 ```
 
 ### Configuration

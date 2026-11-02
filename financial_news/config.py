@@ -10,6 +10,8 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from financial_news.approved_models import APPROVED_SENTIMENT_MODELS
+
 _EMAIL_KNOWN_KEYS = {"recipients", "smtp_host", "smtp_port", "smtp_from"}
 
 _DEFAULT_CONFIG_PATH = Path("config.toml")
@@ -80,6 +82,15 @@ class MonitorConfig:
 
 
 _DEFAULT_SENTIMENT_LABELS: list[str] = ["positive", "negative", "neutral"]
+
+
+def _require_approved_model(model_name: str, source: str) -> str:
+    if model_name not in APPROVED_SENTIMENT_MODELS:
+        raise ValueError(
+            f"{source} model_name {model_name!r} is not an approved sentiment model;"
+            f" approved: {sorted(APPROVED_SENTIMENT_MODELS)}"
+        )
+    return model_name
 
 
 @dataclass
@@ -185,7 +196,11 @@ def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
     if not path.exists():
         sentiment_model_env = os.environ.get("SENTIMENT_MODEL_NAME", "").strip()
         sentiment = (
-            SentimentConfig(model_name=sentiment_model_env)
+            SentimentConfig(
+                model_name=_require_approved_model(
+                    sentiment_model_env, "SENTIMENT_MODEL_NAME"
+                )
+            )
             if sentiment_model_env
             else SentimentConfig()
         )
@@ -384,6 +399,7 @@ def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
     )
     if not sentiment_model_name:
         raise ValueError("config.toml [sentiment] model_name must not be empty")
+    _require_approved_model(sentiment_model_name, "config.toml [sentiment]")
 
     sentiment_labels = list(sentiment_data.get("labels", _DEFAULT_SENTIMENT_LABELS))
     if not sentiment_labels:

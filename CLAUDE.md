@@ -8,11 +8,14 @@ An MCP server that detects statistically unusual news volume and price moves on 
 - `get_news_volume` fetches Finnhub news, computes a 30-day EWM baseline, calculates a z-score, and classifies the result as `normal` / `elevated` / `unusual` against configurable thresholds. Today's own articles carry a "time" field (exchange-local HH:MM:SS) for intraday attribution
 - `get_price_move` fetches daily price history via yfinance, computes a volatility-normalized return z-score against an EWM baseline of prior returns, and classifies it the same way — expressed in the same z-score units as the news signal so the two can be directly compared
 - `get_price_intraday` fetches today's intraday price bars (configurable interval, default 5-minute) — a same-day attribution drill-down, not a second anomaly-detection signal, meant to be called only after a ticker is already flagged elevated/unusual, to line up a specific timestamped headline against a specific intraday move
-- All LLM reasoning begins *after* a tool returns structured output — no model inference occurs inside any tool
+- All LLM reasoning begins *after* a tool returns structured output — no LLM inference occurs inside any tool. finBERT runs locally inside `get_news_volume` as an article-scoring and selection step; it doesn't affect the z-score or classification
 
 ## Architecture: the boundary that matters
 
-The deterministic/LLM boundary is the most important architectural property of this system. It is enforced by tests (`tests/test_boundary.py`), documented in `docs/SKILL.md`, and reviewed on every PR touching `financial_news/server.py` or `financial_news/price.py`.
+The deterministic/LLM boundary is the most important architectural property of this system. It is enforced in two layers, documented in `docs/SKILL.md`, and reviewed on every PR touching `financial_news/server.py` or `financial_news/price.py`:
+
+- **At runtime:** the MCP server and the monitor run inside a network sandbox (`financial_news/sandbox.py`) that allows only Finnhub, Yahoo Finance and the Grafana endpoint, and refuse to start outside it. A hosted LLM call has to cross the network, so it's blocked however it is written. `tests/test_sandbox_integration.py` tries real escape routes against it.
+- **Statically:** `tests/test_boundary.py` follows every import from the deterministic entry points and fails on LLM libraries, local model runtimes, MCP sampling, dynamic imports, and unapproved or unpinned sentiment models.
 
 Never move business logic (z-score math, classification thresholds, Finnhub fetch behaviour) into prompts, and never move interpretation into the deterministic layer.
 
@@ -23,8 +26,10 @@ Never move business logic (z-score math, classification thresholds, Finnhub fetc
 | [financial_news/server.py](financial_news/server.py) | MCP server, tool definitions, orchestration |
 | [financial_news/analysis.py](financial_news/analysis.py) | News-volume z-score computation and EWM baseline logic. `compute_volume_stats` takes an optional `as_of_date` (default `None` = live "today" mode, unchanged) so `evaluation.py` can backtest without duplicating this math |
 | [financial_news/price.py](financial_news/price.py) | Price-move signal — volatility-normalized return z-score per ticker (via yfinance), mirroring the news-volume z-score so the two can be directly compared. Also provides today-only intraday bars (`fetch_intraday_prices`) for same-day attribution. Intentionally decoupled from `analysis.py` (no Finnhub dependency). `compute_price_stats` takes an optional `as_of_date` (default `None` = live mode, unchanged) for the same backtesting reason |
-| [financial_news/timeseries.py](financial_news/timeseries.py) | Shared EWM mean/std helper used by both `analysis.py` and `price.py` |
+| [financial_news/timeseries.py](financial_news/timeseries.py) | Shared EWM mean/std and MAD winsorize helpers used by both `analysis.py` (one-sided) and `price.py` (two-sided) |
 | [financial_news/config.py](financial_news/config.py) | Config loader — thresholds, baseline window, logging settings, and `LLMConfig` (Claude model, effort and fallback, from `[llm]`) |
+| [financial_news/sandbox.py](financial_news/sandbox.py) | Network sandbox for the server and monitor — host allowlist, launcher (`python -m financial_news.sandbox {server,monitor,prefetch-model}`), and the `require_sandbox()` startup check. Protected |
+| [financial_news/approved_models.py](financial_news/approved_models.py) | Sentiment models approved for use, each pinned to a Hugging Face commit. Protected |
 | [financial_news/briefing.py](financial_news/briefing.py) | Daily briefing agent — computes watchlist news and price z-scores and calls Claude (default Opus 5.5, set in `[llm]` config) to reason over elevated/unusual tickers, cross-referencing the two signals |
 | [financial_news/llm.py](financial_news/llm.py) | Claude tool-use loop shared by the briefing and diagnostic agents (LLM layer only) |
 | [financial_news/enrichment.py](financial_news/enrichment.py) | Centralised enrichment pipeline — finBERT scoring, confidence-threshold article selection, and neutral-article filtering for elevated/unusual tickers; used by both the MCP server and the briefing agent |
@@ -60,7 +65,7 @@ Coverage threshold is enforced by `pyproject.toml`. Do not drop it.
 
 ### Before any commit or push
 
-Spawn the `pre-commit` subagent immediately after staging files — no intermediate commands, no summary to the user first. Only proceed to ask the user for commit and push approval if it reports **Overall: PASS**. On approval, commit locally and then push to remote in the same step.
+Spawn the `pre-commit` subagent immediately after staging files — no intermediate commands, no summary to the user first. Only proceed to ask the user for commit and push approval if it reports **Overall: PASS**. On approval, commit locally and then push the feature branch to remote in the same step. Never push to `main`: changes reach `main` only through a PR that the maintainer merges.
 
 ```
 Agent(subagent_type="pre-commit", prompt="Run the pre-commit checklist.")
@@ -74,20 +79,22 @@ Documentation currency check must verify that any affected docs (`README.md`, `C
 
 ## Protected files — require explicit human instruction to modify
 
-- `.github/workflows/ci.yaml`
-- `uv.lock`
-- `docs/AGENTS.md`
-- `docs/SKILL.md`
+Every file matched by [.github/protected-files.txt](.github/protected-files.txt): the governance docs, `.github/`, `.claude/settings.json`, `uv.lock`, the sandbox and approved-models modules, and the boundary tests. [docs/SKILL.md](docs/SKILL.md) lists each one and what it protects.
 
 ## Human review gate
 
-All changes — including agent-authored ones — require explicit human approval before landing on `main`. No agent may self-approve or merge its own changes.
+All changes — including agent-authored ones — require explicit human approval before landing on `main`. No agent may self-approve or merge its own changes. This is enforced by branch protection, the `protected-files` CI check and `.claude/settings.json`; see "Human review gate" in [docs/SKILL.md](docs/SKILL.md).
 
 ## Running the server
 
 ```bash
-FINNHUB_API_KEY=<key> uv run python -m financial_news.server
+# Once, outside the sandbox: download the approved finBERT model at its pinned revision.
+uv run python -m financial_news.sandbox prefetch-model
+
+FINNHUB_API_KEY=<key> uv run python -m financial_news.sandbox server
 ```
+
+Running `python -m financial_news.server` directly exits with "Refusing to start outside the network sandbox". The sandbox needs Node.js (`npx`); on Linux it also needs `bubblewrap`, `socat` and `ripgrep`.
 
 ## Running the daily briefing
 
@@ -115,7 +122,7 @@ Without `ANTHROPIC_API_KEY` the agent still runs but skips LLM analysis and prin
 FINNHUB_API_KEY=<key> \
 GRAFANA_CLOUD_OTLP_ENDPOINT=<url> \
 GRAFANA_CLOUD_BASIC_AUTH_HEADER="Basic <token>" \
-uv run python -m financial_news.monitor
+uv run python -m financial_news.sandbox monitor
 ```
 
 The monitor runs automatically as the first step of `.github/workflows/monitor.yaml` daily at 12:00 UTC (8am ET, pre-US market open, every day including weekends). The workflow is disabled by default until secrets are configured.

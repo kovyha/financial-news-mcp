@@ -16,14 +16,16 @@ For the canonical contributor workflow and validation commands, see `CONTRIBUTIN
 - `financial_news/` — package directory:
   - `server.py` — MCP server exposing tools (`get_news_volume`, `get_price_move`, `get_price_intraday`, `health_check`).
   - `config.py` — configuration loader for logging, analysis, price, sentiment and `[llm]` settings (baseline window, classification thresholds, Claude model/effort/fallback via `LLMConfig`).
+  - `sandbox.py` — network sandbox for the server and monitor: host allowlist, launcher (`python -m financial_news.sandbox {server,monitor,prefetch-model}`) and the `require_sandbox()` startup check. Protected.
+  - `approved_models.py` — sentiment models approved for use, pinned to a Hugging Face commit. Protected.
   - `briefing.py` — daily briefing agent; runs the enrichment pipeline over watchlist stats (news + price), then calls Claude (with `get_news_headlines` and, for elevated/unusual tickers, `get_price_intraday`) to produce a plain-language briefing.
   - `enrichment.py` — centralised enrichment pipeline: finBERT scoring, confidence-threshold article selection, and neutral-article filtering for elevated/unusual tickers; used by both the MCP server and the briefing agent.
-  - `llm.py` — Claude tool-use loop shared by the briefing and diagnostic agents (LLM layer only).
   - `sentiment.py` — finBERT sentiment scoring; deterministic preprocessing for the briefing agent. Requires the `sentiment` dep group (`uv sync --group sentiment`).
+  - `llm.py` — Claude tool-use loop shared by the briefing and diagnostic agents (LLM layer only).
   - `diagnostic.py` — LLM-powered diagnostic agent; reads error logs then calls Claude to identify root cause and propose a fix.
   - `monitor.py` — daily monitoring agent; pushes news z-score/count/EWM mean and price z-score/return/EWM mean as OTel gauges to Grafana Cloud.
   - `price.py` — deterministic price-move signal: a volatility-normalized return z-score per ticker (via yfinance), mirroring `analysis.py`'s news-volume z-score so the two can be directly compared. Also provides `fetch_intraday_prices`, a same-day-only attribution drill-down (not part of the anomaly-detection signal), fetched on demand only for tickers already flagged elevated/unusual. Both `compute_price_stats` and `analysis.compute_volume_stats` take an optional `as_of_date` param (default `None` = live/unchanged behavior) so the evaluation harness can compute the same deterministic signals against a historical date without duplicating the math.
-  - `timeseries.py` — shared EWM mean/std helper used by both `analysis.py` and `price.py`.
+  - `timeseries.py` — shared EWM mean/std and MAD winsorize helpers used by both `analysis.py` (one-sided) and `price.py` (two-sided).
   - `evaluation.py` — baseline comparison harness: quantifies how much news-volume z-score alone, name-mention text-matching alone, and the full system (finBERT + LLM reasoning) each contribute to detecting news-driven price moves, against a human-labeled historical dataset. Price z-score is reported only as a threshold-sensitivity check, not a peer baseline, since the candidate pool is itself selected on that statistic. Also runs a component ablation of the full system (`ablate` command: news z / finBERT / LLM arms, each McNemar-tested against the full system). See `docs/evaluation.md`.
   - `__init__.py` — package initialization.
 - `tests/` — pytest test files and fixtures:
@@ -33,8 +35,11 @@ For the canonical contributor workflow and validation commands, see `CONTRIBUTIN
   - `test_get_price_move.py` — integration tests for the `get_price_move` MCP tool.
   - `test_get_price_intraday.py` — integration tests for the `get_price_intraday` MCP tool.
   - `test_e2e_price.py` — end-to-end tests against the live yfinance API; skipped unless `RUN_PRICE_E2E=1` (`uv run pytest -m price`).
+  - `test_timeseries.py` — unit tests for the shared winsorize helper, one- and two-sided.
   - `claude_mocks.py` — mock Anthropic response objects shared by the briefing and diagnostic tests.
-  - `test_boundary.py` — tests enforcing the deterministic/LLM boundary.
+  - `test_boundary.py` — static tests enforcing the deterministic/LLM boundary.
+  - `test_sandbox.py` — unit tests for the sandbox settings, launcher and startup check.
+  - `test_sandbox_integration.py` — runs the real sandbox and tries every escape route; skipped unless `RUN_SANDBOX_TESTS=1` (CI's `sandbox` job).
   - `test_config.py` — tests for the configuration system.
   - `test_logging.py` — tests for logging and rollover behavior.
   - `test_diagnostic.py` — tests for the diagnostic agent.
@@ -43,9 +48,12 @@ For the canonical contributor workflow and validation commands, see `CONTRIBUTIN
   - `conftest.py` — pytest configuration and fixtures.
 - `docs/` — documentation for iterations and developer notes.
 - `.github/workflows/` — GitHub Actions CI/CD workflows:
-  - `ci.yaml` — baseline CI (`ruff check` + `pytest` on push and pull request, protected-file checks); caches `ProsusAI/finbert` model weights and pre-downloads them before the test step so sentiment tests run without a live HuggingFace download.
-  - `monitor.yaml` — daily run at 12:00 UTC (8am ET, pre-market); runs the monitor step (OTel gauges to Grafana Cloud), then the briefing step (finBERT sentiment + Claude analysis + email), and invokes the LLM diagnostic agent on failure. Disabled by default until secrets are configured.
-- `.github/CODEOWNERS` — code ownership and review requirements for governance files.
+  - `ci.yaml` — the `lint-and-test`, `sandbox` and `protected-files` jobs; see `CONTRIBUTING.md` for what each runs. Caches and pre-downloads the approved finBERT model at its pinned revision.
+  - `monitor.yaml` — daily run at 12:00 UTC (8am ET, pre-market); runs the monitor step inside the network sandbox (OTel gauges to Grafana Cloud), then the briefing step (finBERT sentiment + Claude analysis + email), and invokes the LLM diagnostic agent on failure. Disabled by default until secrets are configured.
+- `.github/CODEOWNERS` — requests the maintainer's review on PRs touching governance and core files.
+- `.github/protected-files.txt` — the protected-files list read by CI (from `main`, so a PR can't shorten it).
+- `.github/actions/setup-sandbox/` — shared setup for the sandbox runtime (Node.js, bubblewrap, socat, ripgrep), used by `ci.yaml` and `monitor.yaml`.
+- `.claude/settings.json` — Claude Code permission rules; denies agent pushes to `main` and force pushes.
 - `config.example.toml` — example configuration file (copy to `config.toml` to customize).
 - `README.md` — public project overview and usage entry point.
 - `CONTRIBUTING.md` — canonical contributor workflow and validation steps.
@@ -62,7 +70,7 @@ These env vars are read by `load_config` when no `config.toml` is present — us
 | Env var | Overrides | Example |
 |---|---|---|
 | `LOG_LEVEL` | `[logging] level` | `DEBUG` or `INFO` (takes precedence over config.toml when both are present) |
-| `SENTIMENT_MODEL_NAME` | `[sentiment] model_name` | `ProsusAI/finbert` |
+| `SENTIMENT_MODEL_NAME` | `[sentiment] model_name` (must be in `approved_models.py`) | `ProsusAI/finbert` |
 | `EMAIL_RECIPIENTS` | `[email] recipients` | `you@example.com,other@example.com` |
 | `SMTP_HOST` | `[email] smtp_host` | `smtp.gmail.com` |
 | `SMTP_PORT` | `[email] smtp_port` | `587` |
@@ -84,9 +92,9 @@ python -m pip install -r requirements.txt  # if you maintain one
 ```
 
 ## Tests strategy
-- **Unit tests for numeric logic:** `test_calculate_z_score.py`.
+- **Unit tests for numeric logic:** `test_calculate_z_score.py` (z-score) and `test_timeseries.py` (shared EWM and winsorize helpers, both modes).
 - **Integration tests for news-volume detection:** `test_get_news_volume.py` (patches `calculate_z_score` and `fetch_news` as appropriate).
-- **Boundary enforcement tests:** `test_boundary.py` verifies the deterministic/LLM boundary is maintained (no model inference in the signal layer).
+- **Boundary enforcement tests:** `test_boundary.py` (static) and `test_sandbox_integration.py` (runtime). What each checks, and what neither covers, is in "How the boundary is enforced" in `README.md`.
 - **Configuration system tests:** `test_config.py` covers config loading, defaults, validation, and error handling.
 - **Logging system tests:** `test_logging.py` verifies the timestamp-based rolling file handler and compression behavior.
 - **Diagnostic agent tests:** `test_diagnostic.py` tests error log parsing, diagnostic reporting, and the LLM agentic loop (using mocked Anthropic client responses — no real API calls in CI).
