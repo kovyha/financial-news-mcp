@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-02 — Evaluation judge moves to Opus 5.5; ground-truth labels revised
+
+- The evaluation judge now uses the same Claude settings as the live agents (`[llm]`: `claude-opus-5-5`, effort `medium`, server-side fallback), so a change to the live model re-runs the evaluation gate. `max_tokens` rises from 300 to 16000 because Opus 5.5 always thinks and thinking counts toward the cap. The gate fingerprint records the full Claude request settings instead of the model name alone.
+- kovyha revised 15 of the 43 scored labels in `eval/labels.json`, re-applying the classification rule strictly to rows flagged by a second-model check: 13 to `ambiguous`, 2 to `noise`. Scored rows fall from 43 to 30. Each revised row keeps its original note plus the reason. See "Label revision" in `docs/evaluation.md`, including why the review wasn't blind.
+- On the revised labels the full system (Opus 5.5) scores F1 0.923 / accuracy 0.900, net 3 rows better than Opus 4.7. On the original labels it had failed the gate (net 5 worse). The component ablation and exploratory analyses are still on the original labels and are marked as such.
+
 ## 2026-11-02 — Evaluation gate in CI
 
 - New `financial_news/eval_gate.py` (protected) and `eval/fingerprint.json`. The fingerprint records what the evaluation judge's verdicts depend on: its prompts, the code on the verdict path, the Claude model and token limit, the locked versions of `anthropic`, `transformers` and `torch`, the pinned finBERT revision, the article-selection settings, and the labels and candidates.

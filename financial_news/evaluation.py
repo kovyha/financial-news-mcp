@@ -61,7 +61,7 @@ import pandas_market_calendars as mcal
 
 from financial_news import log_setup  # noqa: F401
 from financial_news.analysis import compute_volume_stats
-from financial_news.config import Config, load_config
+from financial_news.config import Config, LLMConfig, load_config
 from financial_news.enrichment import EnrichmentConfig, select_articles
 from financial_news.price import compute_price_stats
 from financial_news.sentiment import score_headlines
@@ -76,8 +76,11 @@ _ABLATION_PATH = Path("eval/ablation.json")
 
 _LABEL_VALUES = frozenset({"news_driven", "noise", "ambiguous"})
 
-_MODEL = "claude-opus-4-7"
-_MAX_TOKENS = 300
+# The judge uses the same Claude settings as the live agents ([llm] config), so a
+# model change is measured by the evaluation gate. Thinking can't be turned off
+# on current Opus models and counts toward max_tokens, so the cap leaves room
+# for it even though the verdict itself is one line.
+_MAX_TOKENS = 16000
 _NEWS_ZSCORE_CLAUSE = " the news-volume z-score for the same day vs a 30-day baseline,"
 
 
@@ -353,6 +356,7 @@ def predict_full_system(
     enrich_cfg: EnrichmentConfig,
     use_finbert: bool = True,
     include_news_zscore: bool = True,
+    llm: LLMConfig | None = None,
 ) -> tuple[bool, str]:
     """Baseline 3: finBERT-selected headlines + both z-scores fed to Claude for a
     single structured news-driven/noise judgment. Returns (is_news_driven, raw
@@ -397,8 +401,8 @@ def predict_full_system(
     )
 
     client = anthropic.Anthropic()
-    response = client.messages.create(
-        model=_MODEL,
+    response = client.beta.messages.create(
+        **(llm or LLMConfig()).request_params(),
         max_tokens=_MAX_TOKENS,
         system=_judge_system_prompt(include_news_zscore),
         messages=[{"role": "user", "content": prompt}],
@@ -486,14 +490,16 @@ def _labeled_rows(
 
 
 def run_full_system(
-    rows: list[tuple[dict, Label]], enrich_cfg: EnrichmentConfig
+    rows: list[tuple[dict, Label]],
+    enrich_cfg: EnrichmentConfig,
+    llm: LLMConfig | None = None,
 ) -> list[dict]:
     """Full-system verdict for each labeled row, in the format of
     eval/baseline3_reasoning.json. Shared by run_report and the evaluation gate.
     """
     verdicts = []
     for candidate, label in rows:
-        is_news_driven, text = predict_full_system(candidate, enrich_cfg)
+        is_news_driven, text = predict_full_system(candidate, enrich_cfg, llm=llm)
         verdicts.append(
             {
                 "ticker": candidate["ticker"],
@@ -565,7 +571,7 @@ def run_report(
         for threshold in mention_thresholds
     }
 
-    system_rows = run_full_system(rows, _enrich_config(cfg))
+    system_rows = run_full_system(rows, _enrich_config(cfg), cfg.llm)
     system_result = precision_recall_f1(
         y_true, [r["predicted"] == "news_driven" for r in system_rows]
     )
@@ -688,7 +694,11 @@ def run_ablation(
         preds[arm], reasoning[arm] = [], []
         for c, _ in rows:
             is_real, text = predict_full_system(
-                c, enrich_cfg, use_finbert=use_finbert, include_news_zscore=False
+                c,
+                enrich_cfg,
+                use_finbert=use_finbert,
+                include_news_zscore=False,
+                llm=cfg.llm,
             )
             preds[arm].append(is_real)
             reasoning[arm].append(text)

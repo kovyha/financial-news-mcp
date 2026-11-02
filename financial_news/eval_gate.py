@@ -2,12 +2,13 @@
 depend on changes, and fail if the verdicts got worse.
 
 The fingerprint (eval/fingerprint.json) records what the judge's verdicts depend
-on: its prompts, the code on the verdict path, the Claude model and token limit,
-the locked versions of the libraries that produce verdicts, the pinned finBERT
-revision, the article-selection settings, and the labels and candidates it's
-scored on. CI compares a PR's fingerprint with the base branch's.
-If they differ, CI re-runs the judge (after a maintainer approves the run) and
-fails if more labeled rows went from right to wrong than the pass mark allows.
+on: its prompts, the code on the verdict path, the Claude request settings ([llm]
+model, effort and fallback, plus the token limit), the locked versions of the
+libraries that produce verdicts, the pinned finBERT revision, the
+article-selection settings, and the labels and candidates it's scored on. CI
+compares a PR's fingerprint with the base branch's. If they differ, CI re-runs
+the judge (after a maintainer approves the run) and fails if more labeled rows
+went from right to wrong than the pass mark allows.
 
 Commands:
     # CI, every PR, no API calls: is the committed fingerprint current, and does
@@ -152,8 +153,10 @@ def code_fingerprint(cfg: Config) -> dict:
     source = "\n".join(_normalized_source(fn) for fn in functions)
     source += "\n" + json.dumps(constants, sort_keys=True)
     return {
-        "claude_model": evaluation._MODEL,
-        "claude_max_tokens": evaluation._MAX_TOKENS,
+        "claude_request": {
+            **cfg.llm.request_params(),
+            "max_tokens": evaluation._MAX_TOKENS,
+        },
         "sentiment_model": (
             f"{enrich.model_name}@{APPROVED_SENTIMENT_MODELS[enrich.model_name]}"
         ),
@@ -203,7 +206,9 @@ def compare_verdicts(
 def run_judge(candidates: list[dict], labels: dict, cfg: Config) -> list[dict]:
     """Full-system verdict for every confirmed label, in verdicts-file format."""
     return evaluation.run_full_system(
-        evaluation._labeled_rows(candidates, labels), evaluation._enrich_config(cfg)
+        evaluation._labeled_rows(candidates, labels),
+        evaluation._enrich_config(cfg),
+        cfg.llm,
     )
 
 

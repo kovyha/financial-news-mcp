@@ -137,8 +137,9 @@ max_headlines = 50
 
 [llm]
 
-# Claude settings shared by the daily briefing and diagnostic agents. The
-# evaluation harness pins its own model so stored verdicts stay comparable.
+# Claude settings shared by the daily briefing and diagnostic agents and the
+# evaluation judge. The evaluation gate in CI uses the defaults below, not
+# config.toml, so a change to a default re-runs the evaluation.
 # ANTHROPIC_API_KEY is not configured here — keep secrets in the environment.
 
 # Claude model ID.

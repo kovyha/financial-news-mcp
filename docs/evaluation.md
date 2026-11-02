@@ -92,8 +92,8 @@ headlines; a minority but substantive contradiction is enough to make a call
   that undercut an apparent catalyst). The lesson generalizes: don't sample headlines
   when labeling a specific day — read all of them, however many there are.
 - Sample size is small by design (a "small pilot" scope — current watchlist ×
-  ~60 trading days, filtered to elevated/unusual days only) — 53 candidates, 43 scored
-  after excluding ambiguous. Precision/recall/F1 at this N should be read as
+  ~60 trading days, filtered to elevated/unusual days only) — 53 candidates, 30 scored
+  after excluding ambiguous (43 before the 2026-11-02 label revision below). Precision/recall/F1 at this N should be read as
   directional, not statistically definitive — see the name-mention threshold caveat
   below for a concrete instance of why.
 - Labels live in `eval/labels.json`, checked into the repo. To extend the labeled
@@ -101,6 +101,47 @@ headlines; a minority but substantive contradiction is enough to make a call
   find rows not yet labeled, label them via `draft_label_inputs()` (reading the full
   headline list every time, not a truncated slice), and merge into `eval/labels.json`
   with `load_labels`/`save_labels`.
+
+## Label revision (2026-11-02)
+
+The first model upgrade through the evaluation gate (Opus 4.7 → Opus 5.5 as the
+judge) failed: net 5 rows worse. Before deciding what that meant, the labels were
+re-checked by the maintainer (kovyha). To find rows worth re-reading, a second model
+(Claude Fable 5.1, a different model from the judge) labelled all 43 scored rows from
+the same `draft_label_inputs` (return plus every headline and summary, no z-scores)
+and flagged the 15 where its reading of the rule
+differed from the original label. The maintainer re-read each flagged row against
+the rule and revised all 15: 13 to `ambiguous` (so they drop out of scoring) and 2
+to `noise`. Each changed row in `eval/labels.json` keeps its original note, with
+the reason for the revision and the previous label appended.
+
+The 15 fell into three patterns, each a place where the rule had been applied more
+loosely than written:
+
+1. **Mixed-evidence days resolved toward news** (AMD 04-16, NVDA 04-30, F 05-15,
+   BAC 06-04, META 06-05, TSLA 06-29, XOM 07-07). A real ticker-specific item
+   coincided with a dominant sector or market move. The rule says that's
+   `ambiguous`, "not resolved by which side has more headlines."
+2. **Catalyst after the close** (GME 05-01, PLUG 05-11, GME 06-26). The return is
+   close-to-close; news released after 4pm explains the *next* session.
+3. **Thin or stale catalysts** (GME 04-22, F 05-22, META 06-17, SPCX 06-17,
+   BAC 07-08). A single explainer with a weak cause, commentary on the stock's own
+   move, or a downgrade from the previous week.
+
+Net effect: 18 news_driven / 12 noise / 23 ambiguous, from 31 / 12 / 10. The old
+labels leaned news-driven.
+
+**Caveats, stated plainly:**
+
+- **The review was not blind.** Both the maintainer and the flagging model had
+  already seen both judges' verdicts on these rows. The revisions mostly moved rows
+  to `ambiguous`, removing them from scoring rather than flipping them, and only 2 rows
+  changed class. But a reviewer who had seen the verdicts could still be biased
+  toward them, so a future blind re-label of a fresh pool is the stronger check.
+- **A model helped choose which rows to re-read.** Every revision is the
+  maintainer's call against the written rule, but the rows were surfaced by a model,
+  so this is model-assisted ground truth, not an independent human panel.
+- **N fell from 43 to 30.** Every result below is noisier for it.
 
 ## Running it
 
@@ -132,7 +173,8 @@ protected file, so a PR can't weaken the gate without the maintainer's approval.
 
 **What triggers a re-run.** `eval/fingerprint.json` records:
 
-- the Claude model and `max_tokens`;
+- the Claude request settings (the `[llm]` model, effort and server-side fallback)
+  and `max_tokens`;
 - a hash of the judge's system prompts;
 - a hash of the code on the verdict path and the constants it reads. The gate finds
   that code by following calls from the judge into every project function it reaches
@@ -157,9 +199,10 @@ makes two checks:
 
 1. **Against the base branch's verdicts.** Net worse = rows that went right → wrong
    minus rows that went wrong → right. It must be at most max(2, ⌈2% of rows⌉), which
-   is 2 at today's 43 rows. A fixed count would mean something different as the set
-   grows, and 2% alone would allow only 1 row at this size. Two identical runs flipped
-   0 of 43 rows, so the floor of 2 is headroom for nondeterminism not yet seen.
+   is 2 at today's 30 rows. A fixed count would mean something different as the set
+   grows, and 2% alone would allow only 1 row at this size. Two identical Opus 4.7
+   runs flipped 0 of the original 43 rows, so the floor of 2 is headroom for
+   nondeterminism not yet seen.
 2. **Against the verdicts this PR commits.** They become the next baseline, so they
    must be ones the judge reproduces: at most the same number of rows may disagree,
    and every labeled row must be present.
@@ -193,69 +236,56 @@ and `_print_report` renders a plain comparison table.
 
 ## Results — pilot run (2026-04-13 to 2026-07-12, current watchlist)
 
-All LLM results below were produced with `claude-opus-4-7`, which `evaluation.py` still
-uses. The briefing and diagnostic agents moved to `claude-opus-5-5` on 2026-11-02, so these
-numbers don't yet measure the live model. They'll be re-run when the judge moves to the
-`[llm]` model, the first change to go through the evaluation gate (above).
+Revised labels (see "Label revision" above). The full system uses the same Claude
+settings as the live agents (`[llm]`: `claude-opus-5-5`, effort `medium`).
 
-53 candidates, 43 scored (31 news_driven / 12 noise; 10 ambiguous excluded).
+53 candidates, 30 scored (18 news_driven / 12 noise; 23 ambiguous excluded).
 
 | Baseline | Precision | Recall | F1 | Accuracy | tp / fp / fn / tn |
 |---|---|---|---|---|---|
-| news-volume z-score (θ=2.0) | 0.833 | 0.645 | 0.727 | 0.651 | 20 / 4 / 11 / 8 |
-| news-volume z-score (θ=3.0) | 0.867 | 0.419 | 0.565 | 0.535 | 13 / 2 / 18 / 10 |
-| name-mention (min_fraction=0.25) | 0.789 | 0.968 | 0.870 | 0.791 | 30 / 8 / 1 / 4 |
-| name-mention (min_fraction=0.33) | 0.853 | 0.935 | 0.892 | 0.837 | 29 / 5 / 2 / 7 |
-| name-mention (min_fraction=0.50) | 1.000 | 0.548 | 0.708 | 0.674 | 17 / 0 / 14 / 12 |
-| full system | 0.829 | 0.935 | 0.879 | 0.814 | 29 / 6 / 2 / 6 |
+| news-volume z-score (θ=2.0) | 0.842 | 0.889 | 0.865 | 0.833 | 16 / 3 / 2 / 9 |
+| news-volume z-score (θ=3.0) | 0.917 | 0.611 | 0.733 | 0.733 | 11 / 1 / 7 / 11 |
+| name-mention (min_fraction=0.25) | 0.667 | 1.000 | 0.800 | 0.700 | 18 / 9 / 0 / 3 |
+| name-mention (min_fraction=0.33) | 0.750 | 1.000 | 0.857 | 0.800 | 18 / 6 / 0 / 6 |
+| name-mention (min_fraction=0.50) | 0.923 | 0.667 | 0.774 | 0.767 | 12 / 1 / 6 / 11 |
+| **full system (Opus 5.5)** | **0.857** | **1.000** | **0.923** | **0.900** | 18 / 3 / 0 / 9 |
+| full system (Opus 4.7, previous judge) | 0.750 | 1.000 | 0.857 | 0.800 | 18 / 6 / 0 / 6 |
 
-Not in the comparison above — **price z-score sensitivity check** (not an
-independent baseline; see Overview): at θ=2.0 (`threshold_elevated`, the pool's own
-selection cut) every candidate trivially passes — precision 0.721 (the pool's raw
-base rate), recall 1.000, tp/fp/fn/tn = 31/12/0/0 — a tautology, not a result.
-Tightening to θ=3.0 (`threshold_unusual`) trades that away: precision 0.929, recall
-0.419, F1 0.578, accuracy 0.558, tp/fp/fn/tn = 13/1/18/11. In other words, raising
-this project's own alert threshold from elevated to unusual would buy real
-specificity (0% → 92% correct noise calls among candidates that clear it) at severe
-recall cost (missing more than half of real stories) — a legitimate finding about
-tuning `config.toml`'s `threshold_elevated`/`threshold_unusual`, not a peer
-comparison to the three baselines above.
+**Price z-score sensitivity check** (not an independent baseline; see Overview): at
+θ=2.0 every candidate trivially passes (precision 0.600, the pool's base rate;
+tp/fp/fn/tn = 18/12/0/0). Tightening to θ=3.0 gives precision 0.818, recall 0.500,
+F1 0.621 (9/2/9/10): tighter alerts buy specificity at a large recall cost.
 
 **Reading these numbers:**
 
-- **News-volume z-score is a genuinely informative, independent signal** — unlike
-  finBERT sentiment (see below), a coincident spike in ticker-tagged article *count*
-  does separate the classes (news_driven candidates average z≈4.2 vs noise's z≈1.7)
-  — but it tops out lower than the other baselines (best F1 0.727), likely because a
-  news-volume spike can itself be sector-wide (many outlets covering a sector
-  selloff, all tagged to this ticker) rather than company-specific.
-- **Name-mention (min_fraction=0.33) and the full system are a near-tie**
-  (F1 0.892 vs 0.879, accuracy 0.837 vs 0.814) — a free, deterministic string-match
-  heuristic performing comparably to the LLM-reasoning system in aggregate. This
-  should **not** be read as "name-mention beats the LLM": (a) the 0.25/0.33/0.5
-  threshold sweep was chosen after already seeing the aggregate class means
-  (noise≈0.30, news_driven≈0.51), so 0.33 landing well isn't a blind result; (b) at
-  N=43 a one- or two-candidate swing changes the ranking; (c) the two approaches
-  make *different* mistakes — of the 12 candidates where at least one is wrong,
-  they disagree on 9 (name-mention wrong-but-system-right on 4,
-  system-wrong-but-name-mention-right on 5; exact McNemar p = 1.0) and are both
-  wrong on 3 — meaning they capture partially complementary signal rather than one
-  subsuming the other. An OR-vote (either flags real) reaches perfect recall
-  (1.000) at the cost of precision (0.795); an AND-vote (both must agree) reaches
-  the best precision of any baseline (0.900) at the cost of recall (0.871) — neither
-  ensemble direction raises F1 above the name-mention/full-system tie, so this is a
-  genuine trade-off frontier, not a case where combining strictly wins.
-- **The full system is the only baseline that's simultaneously strong on both
-  axes without a hand-picked threshold.** It reaches 93.5% recall while still
-  correctly flagging half of pure-noise days (6/12), with no threshold to tune — the
-  two deterministic baselines above only reach comparable performance at one
-  specific point on their own precision/recall curve, chosen with the benefit of
-  hindsight on this exact sample.
+- **The full system leads,** with the best F1 and accuracy, perfect recall, and 9 of
+  12 noise days correctly called. Against name-mention at 0.33, the two disagree on
+  7 rows (full system right on 5, name-mention on 2; exact McNemar p = 0.45), so the
+  lead is real on this sample but not statistically separable at N=30.
+- **Opus 5.5 beats Opus 4.7 as the judge** on these labels: net 3 rows better (fixed
+  BAC 07-08, NVDA 04-24, SPCX 06-17, XOM 05-15; newly wrong on META 06-01). On the
+  original labels it was net 5 worse; the difference is almost entirely the 15
+  revised rows, where 4.7's tendency to call contested days news-driven had been
+  rewarded.
+- **News-volume z-score looks much stronger than before** (F1 0.865 at θ=2.0, up
+  from 0.727). Many of the rows that moved to `ambiguous` were low-z days labelled
+  news-driven; with them gone the classes separate cleanly (mean news z 5.9 vs 1.5).
+  Treat that as partly a property of the revised sample.
 
-Full per-candidate reasoning from the full system (`predict_full_system`'s Claude
-output for all 43 scored rows) is saved in `eval/baseline3_reasoning.json` for audit.
+Per-candidate reasoning from the current judge, for the 30 scored rows, is in
+`eval/baseline3_reasoning.json`.
+
+**Previous results (original 43-row labels, Opus 4.7 judge), for the record:**
+news-volume z (θ=2.0) F1 0.727; name-mention (0.33) F1 0.892; full system F1 0.879,
+accuracy 0.814. These are superseded by the table above; the component ablation and
+exploratory analyses below were computed on these original labels and have not been
+re-run.
 
 ## Component ablation
+
+> **Computed on the original 43-row labels with the Opus 4.7 judge**, before the
+> 2026-11-02 label revision and model change. Not yet re-run. Re-running `ablate`
+> now would also mix judges: it reuses the stored Z+L verdicts, which are from 4.7.
 
 `run_ablation` (CLI: `ablate`) breaks the full system into its three components and
 scores each combination against the same 43 labeled rows:
@@ -347,6 +377,9 @@ for every arm are in `eval/ablation.json`.
   p = 0.12) is suggestive but not significant at N=43.
 
 ## Baselines considered and rejected
+
+> These explorations were computed on the original 43-row labels and the Opus 4.7
+> judge, before the 2026-11-02 revision.
 
 Three explorations were tried and deliberately **not** shipped as baselines or
 system changes — documented here rather than silently dropped, per the project's
