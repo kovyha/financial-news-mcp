@@ -116,7 +116,7 @@ uv run python -m financial_news.monitor
 
 ### Configuration
 
-Copy `config.example.toml` to `config.toml` to customise thresholds, watchlist tickers, sentiment model, and email settings. `config.toml` is gitignored — do not commit it.
+Copy `config.example.toml` to `config.toml` to customise thresholds, watchlist tickers, sentiment model, Claude model and effort for the briefing and diagnostic agents, and email settings. `config.toml` is gitignored — do not commit it.
 
 ### Example MCP queries
 

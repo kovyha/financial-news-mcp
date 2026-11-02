@@ -96,6 +96,33 @@ class BriefingConfig:
     prompt_headlines_max: int = 50
 
 
+_LLM_EFFORT_LEVELS = {"low", "medium", "high", "xhigh", "max"}
+_LLM_FALLBACK_BETA = "server-side-fallback-2026-07-01"
+
+
+@dataclass
+class LLMConfig:
+    """Claude settings shared by the briefing and diagnostic agents.
+
+    The evaluation harness pins its own model so stored verdicts stay comparable.
+    """
+
+    model: str = "claude-opus-5-5"
+    # Opus 5.5 defaults to "medium"; set explicitly so the level doesn't drift.
+    effort: str = "medium"
+    # Re-run safety-classifier declines on Anthropic's recommended fallback model.
+    fallback: bool = True
+
+    def request_params(self) -> dict:
+        """Keyword arguments for client.beta.messages.create()."""
+        params: dict = {"model": self.model, "output_config": {"effort": self.effort}}
+        if self.fallback:
+            params["betas"] = [_LLM_FALLBACK_BETA]
+            # SDK 0.102 has no `fallbacks` argument, so send it in the raw body.
+            params["extra_body"] = {"fallbacks": "default"}
+        return params
+
+
 @dataclass
 class EmailConfig:
     recipients: list[str]
@@ -112,6 +139,7 @@ class Config:
     monitor: MonitorConfig = field(default_factory=MonitorConfig)
     briefing: BriefingConfig = field(default_factory=BriefingConfig)
     sentiment: SentimentConfig = field(default_factory=SentimentConfig)
+    llm: LLMConfig = field(default_factory=LLMConfig)
     email: EmailConfig | None = None
 
 
@@ -364,6 +392,29 @@ def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
     if blank:
         raise ValueError("config.toml [sentiment] labels must not contain blank values")
 
+    llm_data = data.get("llm", {})
+
+    unknown = llm_data.keys() - LLMConfig.__dataclass_fields__.keys()
+    if unknown:
+        raise ValueError(
+            f"config.toml [llm] contains unrecognised keys: {sorted(unknown)}"
+        )
+
+    llm_model = str(llm_data.get("model", LLMConfig.model)).strip()
+    if not llm_model:
+        raise ValueError("config.toml [llm] model must not be empty")
+    llm_effort = str(llm_data.get("effort", LLMConfig.effort))
+    if llm_effort not in _LLM_EFFORT_LEVELS:
+        raise ValueError(
+            f"config.toml [llm] effort must be one of {sorted(_LLM_EFFORT_LEVELS)},"
+            f" got: {llm_effort!r}"
+        )
+    llm_fallback = llm_data.get("fallback", LLMConfig.fallback)
+    if not isinstance(llm_fallback, bool):
+        raise ValueError(
+            f"config.toml [llm] fallback must be true or false, got: {llm_fallback!r}"
+        )
+
     email_data = data.get("email")
     email_cfg: EmailConfig | None = (
         _email_config_from_env() if email_data is None else None
@@ -427,5 +478,6 @@ def load_config(path: Path = _DEFAULT_CONFIG_PATH) -> Config:
         sentiment=SentimentConfig(
             model_name=sentiment_model_name, labels=sentiment_labels
         ),
+        llm=LLMConfig(model=llm_model, effort=llm_effort, fallback=llm_fallback),
         email=email_cfg,
     )

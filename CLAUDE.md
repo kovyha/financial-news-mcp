@@ -24,15 +24,16 @@ Never move business logic (z-score math, classification thresholds, Finnhub fetc
 | [financial_news/analysis.py](financial_news/analysis.py) | News-volume z-score computation and EWM baseline logic. `compute_volume_stats` takes an optional `as_of_date` (default `None` = live "today" mode, unchanged) so `evaluation.py` can backtest without duplicating this math |
 | [financial_news/price.py](financial_news/price.py) | Price-move signal — volatility-normalized return z-score per ticker (via yfinance), mirroring the news-volume z-score so the two can be directly compared. Also provides today-only intraday bars (`fetch_intraday_prices`) for same-day attribution. Intentionally decoupled from `analysis.py` (no Finnhub dependency). `compute_price_stats` takes an optional `as_of_date` (default `None` = live mode, unchanged) for the same backtesting reason |
 | [financial_news/timeseries.py](financial_news/timeseries.py) | Shared EWM mean/std helper used by both `analysis.py` and `price.py` |
-| [financial_news/config.py](financial_news/config.py) | Config loader — thresholds, baseline window, logging settings |
-| [financial_news/briefing.py](financial_news/briefing.py) | Daily briefing agent — computes watchlist news and price z-scores and calls Claude (Opus 4.7) to reason over elevated/unusual tickers, cross-referencing the two signals |
+| [financial_news/config.py](financial_news/config.py) | Config loader — thresholds, baseline window, logging settings, and `LLMConfig` (Claude model, effort and fallback, from `[llm]`) |
+| [financial_news/briefing.py](financial_news/briefing.py) | Daily briefing agent — computes watchlist news and price z-scores and calls Claude (default Opus 5.5, set in `[llm]` config) to reason over elevated/unusual tickers, cross-referencing the two signals |
+| [financial_news/llm.py](financial_news/llm.py) | Claude tool-use loop shared by the briefing and diagnostic agents (LLM layer only) |
 | [financial_news/enrichment.py](financial_news/enrichment.py) | Centralised enrichment pipeline — finBERT scoring, confidence-threshold article selection, and neutral-article filtering for elevated/unusual tickers; used by both the MCP server and the briefing agent |
 | [financial_news/sentiment.py](financial_news/sentiment.py) | finBERT sentiment scoring — deterministic preprocessing for the briefing; requires the `sentiment` dep group |
-| [financial_news/diagnostic.py](financial_news/diagnostic.py) | LLM-powered diagnostic agent — reads error logs, then calls Claude (Opus 4.7) to identify root cause and propose a fix |
+| [financial_news/diagnostic.py](financial_news/diagnostic.py) | LLM-powered diagnostic agent — reads error logs, then calls Claude (default Opus 5.5, set in `[llm]` config) to identify root cause and propose a fix |
 | [financial_news/monitor.py](financial_news/monitor.py) | Daily monitoring agent — fetches watchlist news and price z-scores and exports OTel gauges to Grafana Cloud (independent failure handling per signal) |
 | [financial_news/snapshot.py](financial_news/snapshot.py) | Passes monitor stats to the briefing step within the same workflow run (date-keyed, atomic write) |
 | [financial_news/evaluation.py](financial_news/evaluation.py) | Baseline comparison harness — quantifies how much news-volume z-score, name-mention text-matching, and full-system LLM reasoning each contribute to detecting news-driven price moves, against a human-labeled historical dataset. Price z-score is reported separately as a threshold-sensitivity check only, not a peer baseline (the candidate pool is itself selected on that statistic, so evaluating it at the same cut would be circular). Also runs a component ablation (`run_ablation`) of the full system with paired McNemar tests. See [docs/evaluation.md](docs/evaluation.md) |
-| [config.example.toml](config.example.toml) | Copy to `config.toml` to customize thresholds and logging |
+| [config.example.toml](config.example.toml) | Copy to `config.toml` to customize thresholds, logging, and the Claude model/effort (`[llm]`) |
 
 ## Governance docs — read these before making changes
 

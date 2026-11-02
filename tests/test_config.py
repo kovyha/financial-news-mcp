@@ -5,6 +5,7 @@ from financial_news.config import (
     AnalysisConfig,
     Config,
     EmailConfig,
+    LLMConfig,
     LoggingConfig,
     MonitorConfig,
     PriceConfig,
@@ -606,3 +607,71 @@ def test_sentiment_model_env_ignored_when_config_file_present(tmp_path, monkeypa
     )
     cfg = load_config(path=config_file)
     assert cfg.sentiment.model_name == "ahmedrachid/FinancialBERT-Sentiment-Analysis"
+
+
+# ── [llm] ─────────────────────────────────────────────────────────────────────
+
+
+def test_llm_defaults_when_no_file(tmp_path):
+    cfg = load_config(path=tmp_path / "config.toml")
+    assert cfg.llm == LLMConfig()
+    assert cfg.llm.model == "claude-opus-5-5"
+    assert cfg.llm.effort == "medium"
+    assert cfg.llm.fallback is True
+
+
+def test_llm_values_loaded_from_file(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        '[llm]\nmodel = "claude-sonnet-5-5"\neffort = "high"\nfallback = false\n'
+    )
+    cfg = load_config(path=config_file)
+    assert cfg.llm == LLMConfig(
+        model="claude-sonnet-5-5", effort="high", fallback=False
+    )
+
+
+def test_llm_unknown_key_raises(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[llm]\nmax_tokens = 100\n")
+    with pytest.raises(ValueError, match=r"\[llm\] contains unrecognised keys"):
+        load_config(path=config_file)
+
+
+def test_llm_empty_model_raises(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[llm]\nmodel = "  "\n')
+    with pytest.raises(ValueError, match="model must not be empty"):
+        load_config(path=config_file)
+
+
+def test_llm_invalid_effort_raises(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[llm]\neffort = "extreme"\n')
+    with pytest.raises(ValueError, match="effort must be one of"):
+        load_config(path=config_file)
+
+
+def test_llm_non_bool_fallback_raises(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[llm]\nfallback = "yes"\n')
+    with pytest.raises(ValueError, match="fallback must be true or false"):
+        load_config(path=config_file)
+
+
+def test_llm_request_params_with_fallback():
+    params = LLMConfig().request_params()
+    assert params == {
+        "model": "claude-opus-5-5",
+        "output_config": {"effort": "medium"},
+        "betas": ["server-side-fallback-2026-07-01"],
+        "extra_body": {"fallbacks": "default"},
+    }
+
+
+def test_llm_request_params_without_fallback():
+    params = LLMConfig(effort="low", fallback=False).request_params()
+    assert params == {
+        "model": "claude-opus-5-5",
+        "output_config": {"effort": "low"},
+    }

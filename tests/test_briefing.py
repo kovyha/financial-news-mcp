@@ -3,40 +3,25 @@
 from unittest.mock import MagicMock, patch
 
 import anthropic
+from claude_mocks import response as _response
+from claude_mocks import text_block as _text_block
+from claude_mocks import tool_use_block
 
 from financial_news import briefing
 from financial_news.config import (  # noqa: F401
     AnalysisConfig,
     BriefingConfig,
     EmailConfig,
+    LLMConfig,
 )
 
 # ── Mock helpers ──────────────────────────────────────────────────────────────
 
 
-def _text_block(text: str) -> MagicMock:
-    b = MagicMock()
-    b.type = "text"
-    b.text = text
-    return b
-
-
 def _tool_use_block(
     block_id: str, ticker: str, name: str = "get_news_headlines"
 ) -> MagicMock:
-    b = MagicMock()
-    b.type = "tool_use"
-    b.id = block_id
-    b.input = {"ticker": ticker}
-    b.name = name
-    return b
-
-
-def _response(stop_reason: str, content: list) -> MagicMock:
-    r = MagicMock()
-    r.stop_reason = stop_reason
-    r.content = content
-    return r
+    return tool_use_block(block_id, name, {"ticker": ticker})
 
 
 def _sample_stats(ticker: str = "NVDA", classification: str = "unusual") -> dict:
@@ -391,7 +376,7 @@ def test_format_headline_articles_truncates_to_max():
 def test_run_briefing_end_turn(monkeypatch):
     resp = _response("end_turn", [_text_block("Watchlist is quiet today.")])
     mock_client = MagicMock()
-    mock_client.messages.create.return_value = resp
+    mock_client.beta.messages.create.return_value = resp
     monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
 
     result = briefing._run_briefing(
@@ -404,7 +389,7 @@ def test_run_briefing_prompt_uses_configured_baseline_days(monkeypatch):
     """baseline_days must appear in the prompt, not the literal '30'."""
     resp = _response("end_turn", [_text_block("ok")])
     mock_client = MagicMock()
-    mock_client.messages.create.return_value = resp
+    mock_client.beta.messages.create.return_value = resp
     monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
 
     briefing._run_briefing(
@@ -415,7 +400,7 @@ def test_run_briefing_prompt_uses_configured_baseline_days(monkeypatch):
         intraday_cache={},
     )
 
-    call_kwargs = mock_client.messages.create.call_args[1]
+    call_kwargs = mock_client.beta.messages.create.call_args[1]
     prompt_text = call_kwargs["messages"][0]["content"]
     assert "60-day" in prompt_text
     assert "14-day" in prompt_text
@@ -424,7 +409,7 @@ def test_run_briefing_prompt_uses_configured_baseline_days(monkeypatch):
 def test_run_briefing_unexpected_stop_reason(monkeypatch):
     resp = _response("max_tokens", [])
     mock_client = MagicMock()
-    mock_client.messages.create.return_value = resp
+    mock_client.beta.messages.create.return_value = resp
     monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
 
     result = briefing._run_briefing([_sample_stats()], _BASELINE, _DAYS, {}, {})
@@ -446,7 +431,7 @@ def test_run_briefing_tool_use_loop(monkeypatch):
     )
 
     mock_client = MagicMock()
-    mock_client.messages.create.side_effect = [tool_resp, end_resp]
+    mock_client.beta.messages.create.side_effect = [tool_resp, end_resp]
     monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
 
     result = briefing._run_briefing(
@@ -454,7 +439,7 @@ def test_run_briefing_tool_use_loop(monkeypatch):
     )
     assert "NVDA" in result
 
-    second_msgs = mock_client.messages.create.call_args_list[1][1]["messages"]
+    second_msgs = mock_client.beta.messages.create.call_args_list[1][1]["messages"]
     tool_result_content = second_msgs[-1]["content"][0]["content"]
     assert "NVIDIA H200 launch" in tool_result_content
 
@@ -473,7 +458,7 @@ def test_run_briefing_tool_use_loop_price_intraday(monkeypatch):
     end_resp = _response("end_turn", [_text_block("NVDA: gapped up at the open.")])
 
     mock_client = MagicMock()
-    mock_client.messages.create.side_effect = [tool_resp, end_resp]
+    mock_client.beta.messages.create.side_effect = [tool_resp, end_resp]
     monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
 
     result = briefing._run_briefing(
@@ -481,7 +466,7 @@ def test_run_briefing_tool_use_loop_price_intraday(monkeypatch):
     )
     assert "NVDA" in result
 
-    second_msgs = mock_client.messages.create.call_args_list[1][1]["messages"]
+    second_msgs = mock_client.beta.messages.create.call_args_list[1][1]["messages"]
     tool_result_content = second_msgs[-1]["content"][0]["content"]
     assert "09:30:00" in tool_result_content
     assert tool_result_content == intraday_cache["NVDA"]
@@ -491,13 +476,31 @@ def test_run_briefing_tools_list_includes_price_intraday(monkeypatch):
     """The Claude tool schema must offer get_price_intraday, not just headlines."""
     resp = _response("end_turn", [_text_block("ok")])
     mock_client = MagicMock()
-    mock_client.messages.create.return_value = resp
+    mock_client.beta.messages.create.return_value = resp
     monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
 
     briefing._run_briefing([_sample_stats()], _BASELINE, _DAYS, {}, {})
 
-    tool_names = {t["name"] for t in mock_client.messages.create.call_args[1]["tools"]}
+    call_kwargs = mock_client.beta.messages.create.call_args[1]
+    tool_names = {t["name"] for t in call_kwargs["tools"]}
     assert tool_names == {"get_news_headlines", "get_price_intraday"}
+
+
+def test_run_briefing_uses_llm_config(monkeypatch):
+    """Model, effort and fallback come from the [llm] config, not hard-coded."""
+    resp = _response("end_turn", [_text_block("ok")])
+    mock_client = MagicMock()
+    mock_client.beta.messages.create.return_value = resp
+    monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
+
+    llm = LLMConfig(model="claude-sonnet-5-5", effort="high", fallback=False)
+    briefing._run_briefing([_sample_stats()], _BASELINE, _DAYS, {}, {}, llm)
+
+    call_kwargs = mock_client.beta.messages.create.call_args[1]
+    assert call_kwargs["model"] == "claude-sonnet-5-5"
+    assert call_kwargs["output_config"] == {"effort": "high"}
+    assert "betas" not in call_kwargs
+    assert "extra_body" not in call_kwargs
 
 
 # ── main ──────────────────────────────────────────────────────────────────────

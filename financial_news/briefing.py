@@ -1,12 +1,12 @@
 """Daily market briefing agent.
 
 Computes news-volume and price-move z-scores for the configured watchlist, then
-calls Claude (Opus 4.7) with get_news_headlines and get_price_intraday tools to
-produce a plain-language briefing for any tickers showing elevated or unusual
-activity. get_price_intraday is only offered for tickers already flagged
-elevated/unusual on either signal — it's a same-day attribution drill-down
-(lining up a specific timestamped headline against a specific intraday price
-move), not a second detection signal.
+calls Claude (model from [llm] config) with get_news_headlines and
+get_price_intraday tools to produce a plain-language briefing for any tickers
+showing elevated or unusual activity. get_price_intraday is only offered for
+tickers already flagged elevated/unusual on either signal — it's a same-day
+attribution drill-down (lining up a specific timestamped headline against a
+specific intraday price move), not a second detection signal.
 
 Run via GitHub Actions (monitor.yaml, briefing step) or manually:
     FINNHUB_API_KEY=<key> \\
@@ -19,8 +19,6 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-import anthropic
-
 # log_setup must be imported before analysis so handlers are attached
 # to the financial_news logger before analysis module-level code runs.
 from financial_news import (
@@ -28,16 +26,14 @@ from financial_news import (
     snapshot,
 )
 from financial_news.analysis import compute_volume_stats
-from financial_news.config import load_config
+from financial_news.config import LLMConfig, load_config
 from financial_news.email_report import send_run_summary
 from financial_news.enrichment import EnrichmentConfig, enrich_stats
+from financial_news.llm import run_tool_loop
 from financial_news.price import compute_price_stats, fetch_intraday_prices
 
 logger = logging.getLogger(__name__)
 
-_MODEL = "claude-opus-4-7"
-_MAX_TOKENS = 4096
-_THINKING = {"type": "adaptive"}
 _SYSTEM_PROMPT = (
     "You are producing a daily news-volume briefing for a financial watchlist.\n\n"
     "For any ticker classified as 'elevated' or 'unusual', use get_news_headlines"
@@ -209,9 +205,9 @@ def _run_briefing(
     headline_days: int,
     headlines_cache: dict[str, str],
     intraday_cache: dict[str, str],
+    llm: LLMConfig | None = None,
 ) -> str:
     """Call Claude to produce a daily market briefing over the collected stats."""
-    client = anthropic.Anthropic()
     tools = [
         {
             "name": "get_news_headlines",
@@ -260,42 +256,16 @@ def _run_briefing(
         f"Retrieve {headline_days}-day headline context for any elevated or unusual"
         " tickers before writing the briefing."
     )
-    messages = [{"role": "user", "content": prompt}]
-    while True:
-        response = client.messages.create(
-            model=_MODEL,
-            max_tokens=_MAX_TOKENS,
-            thinking=_THINKING,
-            system=[
-                {
-                    "type": "text",
-                    "text": _SYSTEM_PROMPT,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
-            tools=tools,
-            messages=messages,
-        )
-        if response.stop_reason == "end_turn":
-            return "\n".join(b.text for b in response.content if b.type == "text")
-        if response.stop_reason != "tool_use":
-            return f"Briefing ended unexpectedly (stop_reason={response.stop_reason})."
-        messages.append({"role": "assistant", "content": response.content})
-        tool_results = []
-        for block in response.content:
-            if block.type != "tool_use":
-                continue
-            ticker = block.input.get("ticker", "")
-            if block.name == "get_price_intraday":
-                content = intraday_cache.get(
-                    ticker, "No intraday price data available."
-                )
-            else:
-                content = headlines_cache.get(ticker, "No headline context available.")
-            tool_results.append(
-                {"type": "tool_result", "tool_use_id": block.id, "content": content}
-            )
-        messages.append({"role": "user", "content": tool_results})
+
+    def answer_tool(block) -> str:
+        ticker = block.input.get("ticker", "")
+        if block.name == "get_price_intraday":
+            return intraday_cache.get(ticker, "No intraday price data available.")
+        return headlines_cache.get(ticker, "No headline context available.")
+
+    return run_tool_loop(
+        _SYSTEM_PROMPT, prompt, tools, answer_tool, llm or LLMConfig(), "Briefing"
+    )
 
 
 def main() -> int:
@@ -321,6 +291,7 @@ def main() -> int:
         cfg.analysis.headline_days,
         headlines_cache,
         intraday_cache,
+        cfg.llm,
     )
     print()
     print("=" * 60)

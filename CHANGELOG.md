@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-11-02 — Move the briefing and diagnostic agents to Claude Opus 5.5
+
+- The briefing and diagnostic agents moved from Claude Opus 4.7 to Opus 5.5, with effort set explicitly to medium and Anthropic's server-side fallback enabled. All three settings live in one `LLMConfig`, overridable from a new `[llm]` section in `config.toml`. `max_tokens` rises to 16000 for both (from 4096 in the briefing and 8192 in the diagnostic), which raises the cost ceiling per call. The evaluation harness stays on Opus 4.7 until it's re-run, so its published results remain accurate (see `docs/evaluation.md`).
+- One Claude tool-use loop in `llm.py` replaces the copies in `briefing.py` and `diagnostic.py`, with shared test mocks in `tests/claude_mocks.py`.
+
 ## 2026-05-04 — EWM baseline, config-driven thresholds, calendar-day window (by kovyha)
 
 - Replaced the 7-day simple mean/std baseline with a 30-day exponentially weighted mean (EWM) baseline using pandas `ewm(span=30, adjust=True)`.

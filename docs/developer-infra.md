@@ -15,9 +15,10 @@ For the canonical contributor workflow and validation commands, see `CONTRIBUTIN
 ## Key files
 - `financial_news/` — package directory:
   - `server.py` — MCP server exposing tools (`get_news_volume`, `get_price_move`, `get_price_intraday`, `health_check`).
-  - `config.py` — configuration loader for logging, analysis, and price settings (baseline window, classification thresholds).
+  - `config.py` — configuration loader for logging, analysis, price, sentiment and `[llm]` settings (baseline window, classification thresholds, Claude model/effort/fallback via `LLMConfig`).
   - `briefing.py` — daily briefing agent; runs the enrichment pipeline over watchlist stats (news + price), then calls Claude (with `get_news_headlines` and, for elevated/unusual tickers, `get_price_intraday`) to produce a plain-language briefing.
   - `enrichment.py` — centralised enrichment pipeline: finBERT scoring, confidence-threshold article selection, and neutral-article filtering for elevated/unusual tickers; used by both the MCP server and the briefing agent.
+  - `llm.py` — Claude tool-use loop shared by the briefing and diagnostic agents (LLM layer only).
   - `sentiment.py` — finBERT sentiment scoring; deterministic preprocessing for the briefing agent. Requires the `sentiment` dep group (`uv sync --group sentiment`).
   - `diagnostic.py` — LLM-powered diagnostic agent; reads error logs then calls Claude to identify root cause and propose a fix.
   - `monitor.py` — daily monitoring agent; pushes news z-score/count/EWM mean and price z-score/return/EWM mean as OTel gauges to Grafana Cloud.
@@ -32,6 +33,7 @@ For the canonical contributor workflow and validation commands, see `CONTRIBUTIN
   - `test_get_price_move.py` — integration tests for the `get_price_move` MCP tool.
   - `test_get_price_intraday.py` — integration tests for the `get_price_intraday` MCP tool.
   - `test_e2e_price.py` — end-to-end tests against the live yfinance API; skipped unless `RUN_PRICE_E2E=1` (`uv run pytest -m price`).
+  - `claude_mocks.py` — mock Anthropic response objects shared by the briefing and diagnostic tests.
   - `test_boundary.py` — tests enforcing the deterministic/LLM boundary.
   - `test_config.py` — tests for the configuration system.
   - `test_logging.py` — tests for logging and rollover behavior.
