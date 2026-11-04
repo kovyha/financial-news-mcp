@@ -41,8 +41,27 @@ legitimately costs more and shouldn't page anyone.
 2. Go to **Explore** (compass icon in the left menu).
 3. At the top, pick the Prometheus data source, named like
    `grafanacloud-<stack>-prom`.
-4. Switch the query editor to **Code**, enter `financial_news_z_score`, set the
-   time range (top right) to **Last 7 days**, and click **Run query**.
+4. Switch the query editor to **Code**. In the query field (to the right of the
+   **Metrics browser** button) enter:
+
+   ```
+   last_over_time(financial_news_z_score[1d])
+   ```
+
+   Set the time range (top right) to **Last 7 days** and click **Run query**
+   (or press Shift+Enter).
+
+Wrap metric names in `last_over_time(...[1d])` whenever you look at them. The
+monitor and briefing each send one sample per metric per day, and Grafana only
+plots a sample within 5 minutes of when it was sent. On a range of days, the bare
+metric name (`financial_news_z_score`) shows only the odd day or nothing at all;
+`last_over_time` carries each day's value forward to the next run. The free
+Grafana Cloud plan keeps 14 days of metrics, so you can't look back further than
+that.
+
+If the graph says "Failed to load plugin: Plugin timeseries not found", your
+browser has an out-of-date copy of Grafana: hard-refresh the page (Cmd+Shift+R
+on a Mac, Ctrl+Shift+R elsewhere).
 
 You should see one line per watchlist ticker, from the monitor. If you see
 nothing, fix that first — the briefing uses the same connection:
@@ -53,9 +72,11 @@ nothing, fix that first — the briefing uses the same connection:
   repository secrets still valid? Grafana Cloud access tokens can expire.
 
 After the first briefing run that includes this change, query
-`financial_news_briefing_cost_usd` the same way. If the name doesn't match, use the
-**Metrics browser** button and search for `briefing`. It should show as a single
-series; the queries below assume that.
+`last_over_time(financial_news_briefing_cost_usd[1d])` the same way. If the name
+doesn't match, use the **Metrics browser** button and search for `briefing`. You
+may see two series, one labelled `service_name="unknown_service"` (data sent
+before that label was added) and one `financial-news-briefing`; the alert
+queries below combine them with `max(...)`.
 
 ## Step 1: say where alerts go (contact point)
 
@@ -87,13 +108,13 @@ For each rule: **Alerting → Alert rules → + New alert rule**.
 
 ### Rule 1: cost jump
 
-Summary: *Briefing cost per flagged ticker is more than double its 30-day median.*
+Summary: *Briefing cost per flagged ticker is more than double its 14-day median.*
 
 ```promql
 max(last_over_time(financial_news_briefing_cost_per_flagged_ticker_usd[1d]))
-  > 2 * max(quantile_over_time(0.5, financial_news_briefing_cost_per_flagged_ticker_usd[30d]))
+  > 2 * max(quantile_over_time(0.5, financial_news_briefing_cost_per_flagged_ticker_usd[14d]))
 and
-  max(count_over_time(financial_news_briefing_cost_per_flagged_ticker_usd[30d])) >= 7
+  max(count_over_time(financial_news_briefing_cost_per_flagged_ticker_usd[14d])) >= 7
 ```
 
 The last line holds the rule back until there are about a week of runs to compare
@@ -101,14 +122,26 @@ against.
 
 ### Rule 2: upward trend
 
-Summary: *Briefing cost per flagged ticker over the last week is 25% above its 30-day average.*
+Summary: *Briefing cost per flagged ticker over the last week is 25% above the week before.*
 
 ```promql
 max(avg_over_time(financial_news_briefing_cost_per_flagged_ticker_usd[7d]))
-  > 1.25 * max(avg_over_time(financial_news_briefing_cost_per_flagged_ticker_usd[30d]))
+  > 1.25 * max(avg_over_time(financial_news_briefing_cost_per_flagged_ticker_usd[7d] offset 7d))
 and
-  max(count_over_time(financial_news_briefing_cost_per_flagged_ticker_usd[30d])) >= 14
+  max(count_over_time(financial_news_briefing_cost_per_flagged_ticker_usd[7d])) >= 4
+and
+  max(count_over_time(financial_news_briefing_cost_per_flagged_ticker_usd[7d] offset 7d)) >= 4
 ```
+
+`offset 7d` moves a window back a week, so the rule compares this week with last
+week. The two count lines need at least 4 runs in each week; cost is only sent on
+days Claude runs, so quiet days don't count.
+
+### Why 14 days
+
+The free Grafana Cloud plan keeps metrics for 14 days, so no rule looks further
+back than that. A `[30d]` window would silently see only 14 days. On a plan that
+keeps data longer you can widen the windows, for example Rule 1 to `[30d]`.
 
 ### Rule 3: caching stopped working
 
@@ -139,7 +172,7 @@ normal day's cost.
 ## Tuning
 
 The multipliers (2×, 25%), the cache threshold (0.2) and the ceiling are starting
-points. Revisit them after a month of data: if a rule fires on days that look
+points. Revisit them after a few weeks of running: if a rule fires on days that look
 fine, loosen it; if a cost rise got past it, tighten it. Changing the `[llm]`
 model or effort changes cost per run, so expect the jump and trend rules to fire
 once after such a change.
