@@ -127,6 +127,19 @@ def test_main_execs_pinned_srt_with_scrubbed_env(monkeypatch):
     assert "ANTHROPIC_API_KEY" not in captured["env"]
 
 
+def test_main_creates_write_allowed_dirs_before_launch(monkeypatch, tmp_path):
+    # A fresh checkout has no logs/ dir, and the Linux sandbox can't create it.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(sandbox.shutil, "which", lambda _: "/usr/bin/npx")
+    monkeypatch.setattr(sandbox.os, "execve", lambda *_: None)
+    sandbox.main(["monitor"])
+
+    assert (tmp_path / "logs").is_dir()
+    for allowed in sandbox.build_settings("monitor", {})["filesystem"]["allowWrite"]:
+        assert Path(allowed).is_dir()
+
+
 def test_main_prefetch_model(monkeypatch):
     calls = []
     monkeypatch.setattr(sandbox, "prefetch_model", lambda: calls.append(True))
