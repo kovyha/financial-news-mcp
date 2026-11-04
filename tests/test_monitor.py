@@ -8,7 +8,7 @@ import pytest
 from financial_news import analysis
 from financial_news.analysis import GAUGE_SPECS
 from financial_news.config import AnalysisConfig
-from financial_news.monitor import _build_meter_provider, main, run
+from financial_news.monitor import main, run
 from financial_news.price import PRICE_GAUGE_SPECS
 
 
@@ -203,24 +203,6 @@ def test_run_always_flushes_and_shuts_down(mock_meter, mock_provider):
     mock_provider.shutdown.assert_called_once()
 
 
-def test_build_meter_provider_appends_v1_metrics_path(monkeypatch):
-    monkeypatch.setenv("GRAFANA_CLOUD_OTLP_ENDPOINT", "https://otlp.example.com/")
-    monkeypatch.setenv("GRAFANA_CLOUD_BASIC_AUTH_HEADER", "Basic abc123")
-
-    with (
-        patch("financial_news.monitor.OTLPMetricExporter") as mock_exporter_cls,
-        patch("financial_news.monitor.PeriodicExportingMetricReader"),
-        patch("financial_news.monitor.MeterProvider") as mock_provider_cls,
-    ):
-        result = _build_meter_provider()
-
-    mock_exporter_cls.assert_called_once_with(
-        endpoint="https://otlp.example.com/v1/metrics",
-        headers={"Authorization": "Basic abc123"},
-    )
-    assert result is mock_provider_cls.return_value
-
-
 def test_main_passes_config_tickers_to_run(monkeypatch):
     from pathlib import Path
 
@@ -236,7 +218,7 @@ def test_main_passes_config_tickers_to_run(monkeypatch):
     with (
         patch("financial_news.monitor.load_config", return_value=fake_cfg),
         patch(
-            "financial_news.monitor._build_meter_provider",
+            "financial_news.monitor.build_meter_provider",
             return_value=fake_provider,
         ),
         patch("financial_news.monitor.metrics"),
@@ -443,37 +425,6 @@ def test_run_empty_tickers_returns_0_and_flushes(mock_meter, mock_provider):
     mock_provider.shutdown.assert_called_once()
 
 
-def test_build_meter_provider_without_trailing_slash(monkeypatch):
-    monkeypatch.setenv("GRAFANA_CLOUD_OTLP_ENDPOINT", "https://otlp.example.com")
-    monkeypatch.setenv("GRAFANA_CLOUD_BASIC_AUTH_HEADER", "Basic abc123")
-
-    with (
-        patch("financial_news.monitor.OTLPMetricExporter") as mock_exporter_cls,
-        patch("financial_news.monitor.PeriodicExportingMetricReader"),
-        patch("financial_news.monitor.MeterProvider"),
-    ):
-        _build_meter_provider()
-
-    mock_exporter_cls.assert_called_once_with(
-        endpoint="https://otlp.example.com/v1/metrics",
-        headers={"Authorization": "Basic abc123"},
-    )
-
-
-def test_build_meter_provider_raises_when_endpoint_unset(monkeypatch):
-    monkeypatch.delenv("GRAFANA_CLOUD_OTLP_ENDPOINT", raising=False)
-    monkeypatch.setenv("GRAFANA_CLOUD_BASIC_AUTH_HEADER", "Basic abc123")
-    with pytest.raises(KeyError):
-        _build_meter_provider()
-
-
-def test_build_meter_provider_raises_when_auth_unset(monkeypatch):
-    monkeypatch.setenv("GRAFANA_CLOUD_OTLP_ENDPOINT", "https://otlp.example.com")
-    monkeypatch.delenv("GRAFANA_CLOUD_BASIC_AUTH_HEADER", raising=False)
-    with pytest.raises(KeyError):
-        _build_meter_provider()
-
-
 def test_main_sets_meter_provider(monkeypatch):
     monkeypatch.setenv("GRAFANA_CLOUD_OTLP_ENDPOINT", "https://otlp.example.com")
     monkeypatch.setenv("GRAFANA_CLOUD_BASIC_AUTH_HEADER", "Basic token")
@@ -485,7 +436,7 @@ def test_main_sets_meter_provider(monkeypatch):
     with (
         patch("financial_news.monitor.load_config", return_value=fake_cfg),
         patch(
-            "financial_news.monitor._build_meter_provider", return_value=fake_provider
+            "financial_news.monitor.build_meter_provider", return_value=fake_provider
         ),
         patch("financial_news.monitor.metrics") as mock_metrics,
         patch("financial_news.monitor.run", return_value=0),

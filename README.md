@@ -67,7 +67,7 @@ A control run without the sandbox confirms those routes are really open, so the 
 | Agent | File | Trigger | What it does |
 |---|---|---|---|
 | MCP server | `server.py` | On-demand (MCP client) | Exposes `get_news_volume`, `get_price_move`, `get_price_intraday`, and `health_check` tools |
-| Daily briefing | `briefing.py` | Daily pre-market (CI) | Scores all watchlist headlines and summaries with finBERT, filters to high-confidence signals (≥ 0.85), calls Claude to produce a plain-language briefing that cross-references news and price-move signals; emails result |
+| Daily briefing | `briefing.py` | Daily pre-market (CI) | Scores all watchlist headlines and summaries with finBERT, filters to high-confidence signals (≥ 0.85), calls Claude to produce a plain-language briefing that cross-references news and price-move signals (skipped when no ticker is elevated/unusual); emails result and sends its Claude cost to Grafana Cloud |
 | Daily monitor | `monitor.py` | Daily pre-market (CI) | Fetches watchlist news and price-move z-scores, exports OTel gauges to Grafana Cloud (each signal fails independently) |
 | Diagnostic | `diagnostic.py` | On-demand, or automatically on CI failure (monitor.yaml) | Reads error logs, calls Claude to identify root cause and propose a fix |
 
@@ -142,8 +142,12 @@ Starting `python -m financial_news.server` directly exits with "Refusing to star
 ```bash
 FINNHUB_API_KEY=<key> \
 ANTHROPIC_API_KEY=<key> \
+GRAFANA_CLOUD_OTLP_ENDPOINT=<url> \
+GRAFANA_CLOUD_BASIC_AUTH_HEADER="Basic <token>" \
 uv run python -m financial_news.briefing
 ```
+
+The Grafana variables are optional; with them, the briefing sends its token usage and estimated cost to Grafana Cloud for alerting ([docs/grafana-alerts.md](docs/grafana-alerts.md)).
 
 ### Run the monitor
 

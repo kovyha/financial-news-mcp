@@ -62,7 +62,6 @@ def _analyze_with_llm(
                 },
                 "required": ["path"],
             },
-            "cache_control": {"type": "ephemeral"},
         }
     ]
     error_text = "\n".join(error_lines)
@@ -82,7 +81,7 @@ def _analyze_with_llm(
 
     return run_tool_loop(
         _SYSTEM_PROMPT, prompt, tools, answer_tool, llm or LLMConfig(), "Analysis"
-    )
+    ).text
 
 
 def _find_active_error_log(log_dir: Path, filename_stem: str) -> Path | None:

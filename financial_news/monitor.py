@@ -15,15 +15,12 @@ Run via GitHub Actions (monitor.yaml) or manually:
 """
 
 import logging
-import os
 import sys
 import time
 from pathlib import Path
 
 from opentelemetry import metrics
-from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
 from opentelemetry.sdk.metrics import MeterProvider
-from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 
 # log_setup must be imported before analysis so handlers are attached
 # to the financial_news logger before analysis module-level code runs.
@@ -35,19 +32,9 @@ from financial_news.analysis import GAUGE_SPECS, compute_volume_stats
 from financial_news.config import load_config
 from financial_news.price import PRICE_GAUGE_SPECS, compute_price_stats
 from financial_news.sandbox import require_sandbox
+from financial_news.telemetry import build_meter_provider
 
 logger = logging.getLogger(__name__)
-
-
-def _build_meter_provider() -> MeterProvider:
-    endpoint = os.environ["GRAFANA_CLOUD_OTLP_ENDPOINT"].rstrip("/") + "/v1/metrics"
-    auth = os.environ["GRAFANA_CLOUD_BASIC_AUTH_HEADER"]
-    exporter = OTLPMetricExporter(
-        endpoint=endpoint,
-        headers={"Authorization": auth},
-    )
-    reader = PeriodicExportingMetricReader(exporter, export_interval_millis=5_000)
-    return MeterProvider(metric_readers=[reader])
 
 
 def run(
@@ -138,7 +125,7 @@ def main() -> int:
         format="%(asctime)s %(levelname)-8s %(name)s %(message)s",
     )
     cfg = load_config()
-    provider = _build_meter_provider()
+    provider = build_meter_provider()
     metrics.set_meter_provider(provider)
     return run(
         provider,
