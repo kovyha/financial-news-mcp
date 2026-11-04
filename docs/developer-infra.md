@@ -22,7 +22,7 @@ For the canonical contributor workflow and validation commands, see `CONTRIBUTIN
   - `briefing.py` — daily briefing agent; runs the enrichment pipeline over watchlist stats (news + price), then calls Claude (with `get_news_headlines` and, for elevated/unusual tickers, `get_price_intraday`) to produce a plain-language briefing.
   - `enrichment.py` — centralised enrichment pipeline: finBERT scoring, confidence-threshold article selection, and neutral-article filtering for elevated/unusual tickers; used by both the MCP server and the briefing agent.
   - `sentiment.py` — finBERT sentiment scoring; deterministic preprocessing for the briefing agent. Requires the `sentiment` dep group (`uv sync --group sentiment`).
-  - `llm.py` — Claude tool-use loop shared by the briefing and diagnostic agents (LLM layer only).
+  - `llm.py` — Claude tool-use loop shared by the briefing and diagnostic agents (LLM layer only). Logs token usage (input, cache-write, cache-read, output) per turn as `llm_usage` and per run as `llm_usage_total`.
   - `diagnostic.py` — LLM-powered diagnostic agent; reads error logs then calls Claude to identify root cause and propose a fix.
   - `monitor.py` — daily monitoring agent; pushes news z-score/count/EWM mean and price z-score/return/EWM mean as OTel gauges to Grafana Cloud.
   - `price.py` — deterministic price-move signal: a volatility-normalized return z-score per ticker (via yfinance), mirroring `analysis.py`'s news-volume z-score so the two can be directly compared. Also provides `fetch_intraday_prices`, a same-day-only attribution drill-down (not part of the anomaly-detection signal), fetched on demand only for tickers already flagged elevated/unusual. Both `compute_price_stats` and `analysis.compute_volume_stats` take an optional `as_of_date` param (default `None` = live/unchanged behavior) so the evaluation harness can compute the same deterministic signals against a historical date without duplicating the math.
@@ -37,7 +37,8 @@ For the canonical contributor workflow and validation commands, see `CONTRIBUTIN
   - `test_get_price_intraday.py` — integration tests for the `get_price_intraday` MCP tool.
   - `test_e2e_price.py` — end-to-end tests against the live yfinance API; skipped unless `RUN_PRICE_E2E=1` (`uv run pytest -m price`).
   - `test_timeseries.py` — unit tests for the shared winsorize helper, one- and two-sided.
-  - `claude_mocks.py` — mock Anthropic response objects shared by the briefing and diagnostic tests.
+  - `claude_mocks.py` — mock Anthropic response objects (with token usage) shared by the briefing, diagnostic and `llm.py` tests.
+  - `test_llm.py` — tests for the shared Claude tool-use loop's token-usage logging.
   - `test_boundary.py` — static tests enforcing the deterministic/LLM boundary.
   - `test_sandbox.py` — unit tests for the sandbox settings, launcher and startup check.
   - `test_sandbox_integration.py` — runs the real sandbox and tries every escape route; skipped unless `RUN_SANDBOX_TESTS=1` (CI's `sandbox` job).
