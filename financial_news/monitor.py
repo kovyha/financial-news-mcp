@@ -125,7 +125,7 @@ def main() -> int:
         format="%(asctime)s %(levelname)-8s %(name)s %(message)s",
     )
     cfg = load_config()
-    provider = build_meter_provider()
+    provider = build_meter_provider("financial-news-monitor")
     metrics.set_meter_provider(provider)
     return run(
         provider,

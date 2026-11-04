@@ -359,7 +359,7 @@ def _export_usage(result: ToolLoopResult | None, flagged: int) -> None:
         logger.info("briefing usage export skipped: Grafana Cloud not configured")
         return
     try:
-        provider = build_meter_provider()
+        provider = build_meter_provider("financial-news-briefing")
         meter = provider.get_meter("financial_news.briefing")
 
         def send(name: str, description: str, value: float | None) -> None:

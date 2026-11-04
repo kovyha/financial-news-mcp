@@ -765,7 +765,7 @@ def test_main_exports_flagged_count_only_on_quiet_day(monkeypatch, capsys):
 # ── _export_usage ─────────────────────────────────────────────────────────────
 
 
-def _gauges(monkeypatch) -> tuple[dict[str, MagicMock], MagicMock]:
+def _gauges(monkeypatch) -> tuple[dict[str, MagicMock], MagicMock, MagicMock]:
     """Capture the gauges _export_usage creates, keyed by metric name."""
     monkeypatch.setenv("GRAFANA_CLOUD_OTLP_ENDPOINT", "https://otlp.example.com")
     monkeypatch.setenv("GRAFANA_CLOUD_BASIC_AUTH_HEADER", "Basic abc")
@@ -774,17 +774,17 @@ def _gauges(monkeypatch) -> tuple[dict[str, MagicMock], MagicMock]:
     provider.get_meter.return_value.create_gauge.side_effect = (
         lambda name, description: gauges.setdefault(name, MagicMock())
     )
-    monkeypatch.setattr(
-        "financial_news.briefing.build_meter_provider", lambda: provider
-    )
-    return gauges, provider
+    build = MagicMock(return_value=provider)
+    monkeypatch.setattr("financial_news.briefing.build_meter_provider", build)
+    return gauges, provider, build
 
 
 def test_export_usage_sends_tokens_cost_and_ratios(monkeypatch):
-    gauges, provider = _gauges(monkeypatch)
+    gauges, provider, build = _gauges(monkeypatch)
 
     briefing._export_usage(_loop_result("x", cost_usd=0.06), flagged=2)
 
+    build.assert_called_once_with("financial-news-briefing")
     gauges["financial_news.briefing_flagged_tickers"].set.assert_called_once_with(2)
     gauges["financial_news.briefing_tokens"].set.assert_any_call(
         6000, {"type": "cache_read_input_tokens"}
@@ -801,7 +801,7 @@ def test_export_usage_sends_tokens_cost_and_ratios(monkeypatch):
 
 
 def test_export_usage_quiet_day_sends_flagged_count_only(monkeypatch):
-    gauges, _ = _gauges(monkeypatch)
+    gauges, _, _ = _gauges(monkeypatch)
 
     briefing._export_usage(None, flagged=0)
 
@@ -809,7 +809,7 @@ def test_export_usage_quiet_day_sends_flagged_count_only(monkeypatch):
 
 
 def test_export_usage_omits_cost_when_model_price_unknown(monkeypatch):
-    gauges, _ = _gauges(monkeypatch)
+    gauges, _, _ = _gauges(monkeypatch)
 
     briefing._export_usage(_loop_result("x", cost_usd=None), flagged=1)
 
@@ -819,7 +819,7 @@ def test_export_usage_omits_cost_when_model_price_unknown(monkeypatch):
 
 
 def test_export_usage_omits_cache_ratio_when_no_input(monkeypatch):
-    gauges, _ = _gauges(monkeypatch)
+    gauges, _, _ = _gauges(monkeypatch)
     result = ToolLoopResult("x", 1, dict.fromkeys(_loop_result("x").usage, 0), 0.0)
 
     briefing._export_usage(result, flagged=1)
