@@ -10,6 +10,7 @@ import os
 from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 
 _ENDPOINT_VAR = "GRAFANA_CLOUD_OTLP_ENDPOINT"
 _AUTH_VAR = "GRAFANA_CLOUD_BASIC_AUTH_HEADER"
@@ -20,8 +21,12 @@ def grafana_configured() -> bool:
     return bool(os.environ.get(_ENDPOINT_VAR) and os.environ.get(_AUTH_VAR))
 
 
-def build_meter_provider() -> MeterProvider:
-    """Meter provider exporting to Grafana Cloud. Raises KeyError if unconfigured."""
+def build_meter_provider(service_name: str) -> MeterProvider:
+    """Meter provider exporting to Grafana Cloud. Raises KeyError if unconfigured.
+
+    service_name becomes the service_name and job labels in Grafana; without it
+    OpenTelemetry reports every metric as "unknown_service".
+    """
     endpoint = os.environ[_ENDPOINT_VAR].rstrip("/") + "/v1/metrics"
     auth = os.environ[_AUTH_VAR]
     exporter = OTLPMetricExporter(
@@ -29,4 +34,5 @@ def build_meter_provider() -> MeterProvider:
         headers={"Authorization": auth},
     )
     reader = PeriodicExportingMetricReader(exporter, export_interval_millis=5_000)
-    return MeterProvider(metric_readers=[reader])
+    resource = Resource.create({SERVICE_NAME: service_name})
+    return MeterProvider(resource=resource, metric_readers=[reader])

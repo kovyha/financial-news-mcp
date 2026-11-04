@@ -12,7 +12,10 @@ page is the setup guide: follow it once, in order.
 
 One set of samples per daily run. In Grafana, metric names have their dots
 replaced by underscores (`financial_news.briefing_cost_usd` becomes
-`financial_news_briefing_cost_usd`).
+`financial_news_briefing_cost_usd`). Each metric also carries a `service_name`
+label saying which job sent it: `financial-news-briefing` or
+`financial-news-monitor`. Data sent before that label was added shows
+`unknown_service`.
 
 | Metric | Sent | Meaning |
 |---|---|---|
@@ -140,3 +143,15 @@ points. Revisit them after a month of data: if a rule fires on days that look
 fine, loosen it; if a cost rise got past it, tighten it. Changing the `[llm]`
 model or effort changes cost per run, so expect the jump and trend rules to fire
 once after such a change.
+
+### Reference readings
+
+Readings from real runs, to compare against when setting thresholds. Add a row
+when you retune or change the `[llm]` model or effort.
+
+| Date | Model | Flagged tickers | Turns | Cache hit ratio | Cost (USD) | Cost per flagged ticker (USD) |
+|---|---|---|---|---|---|---|
+| 2026-11-04 | Opus 5.5 | ~5 | 3 | 0.596 | 0.354 | 0.07 |
+
+2026-11-04 was the first run with conversation caching; its data carries
+`service_name="unknown_service"` (see above).

@@ -16,7 +16,7 @@ def test_build_meter_provider_appends_v1_metrics_path(monkeypatch):
         patch("financial_news.telemetry.PeriodicExportingMetricReader"),
         patch("financial_news.telemetry.MeterProvider") as mock_provider_cls,
     ):
-        result = build_meter_provider()
+        result = build_meter_provider("svc")
 
     mock_exporter_cls.assert_called_once_with(
         endpoint="https://otlp.example.com/v1/metrics",
@@ -34,7 +34,7 @@ def test_build_meter_provider_without_trailing_slash(monkeypatch):
         patch("financial_news.telemetry.PeriodicExportingMetricReader"),
         patch("financial_news.telemetry.MeterProvider"),
     ):
-        build_meter_provider()
+        build_meter_provider("svc")
 
     mock_exporter_cls.assert_called_once_with(
         endpoint="https://otlp.example.com/v1/metrics",
@@ -46,14 +46,14 @@ def test_build_meter_provider_raises_when_endpoint_unset(monkeypatch):
     monkeypatch.delenv("GRAFANA_CLOUD_OTLP_ENDPOINT", raising=False)
     monkeypatch.setenv("GRAFANA_CLOUD_BASIC_AUTH_HEADER", "Basic abc123")
     with pytest.raises(KeyError):
-        build_meter_provider()
+        build_meter_provider("svc")
 
 
 def test_build_meter_provider_raises_when_auth_unset(monkeypatch):
     monkeypatch.setenv("GRAFANA_CLOUD_OTLP_ENDPOINT", "https://otlp.example.com")
     monkeypatch.delenv("GRAFANA_CLOUD_BASIC_AUTH_HEADER", raising=False)
     with pytest.raises(KeyError):
-        build_meter_provider()
+        build_meter_provider("svc")
 
 
 @pytest.mark.parametrize(

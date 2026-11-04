@@ -6,7 +6,8 @@ requiring live Grafana Cloud credentials.
 
 What this covers that unit tests with MagicMock cannot:
 - The OTel SDK actually encodes gauge values into an OTLP payload.
-- build_meter_provider() wires the endpoint URL and Authorization header correctly.
+- build_meter_provider() wires the endpoint URL, Authorization header and
+  service name correctly.
 - force_flush() triggers an export before shutdown (timing guarantee).
 
 What this does NOT cover:
@@ -28,7 +29,7 @@ def test_otlp_export_posts_to_v1_metrics_path(httpserver, monkeypatch):
     monkeypatch.setenv("GRAFANA_CLOUD_OTLP_ENDPOINT", httpserver.url_for("/"))
     monkeypatch.setenv("GRAFANA_CLOUD_BASIC_AUTH_HEADER", "Basic dGVzdDp0ZXN0")
 
-    provider = build_meter_provider()
+    provider = build_meter_provider("financial-news-monitor")
     otel_metrics.set_meter_provider(provider)
     meter = otel_metrics.get_meter("test.monitor")
     gauge = meter.create_gauge("test.gauge", description="test")
@@ -58,7 +59,7 @@ def test_otlp_export_sends_authorization_header(httpserver, monkeypatch):
     monkeypatch.setenv("GRAFANA_CLOUD_OTLP_ENDPOINT", httpserver.url_for("/"))
     monkeypatch.setenv("GRAFANA_CLOUD_BASIC_AUTH_HEADER", expected_auth)
 
-    provider = build_meter_provider()
+    provider = build_meter_provider("financial-news-monitor")
     otel_metrics.set_meter_provider(provider)
     meter = otel_metrics.get_meter("test.auth")
     gauge = meter.create_gauge("test.auth.gauge", description="auth test")
@@ -88,7 +89,7 @@ def test_otlp_export_flushes_before_shutdown(httpserver, monkeypatch):
     monkeypatch.setenv("GRAFANA_CLOUD_OTLP_ENDPOINT", httpserver.url_for("/"))
     monkeypatch.setenv("GRAFANA_CLOUD_BASIC_AUTH_HEADER", "Basic dGVzdA==")
 
-    provider = build_meter_provider()
+    provider = build_meter_provider("financial-news-monitor")
     otel_metrics.set_meter_provider(provider)
     meter = otel_metrics.get_meter("test.flush")
     gauge = meter.create_gauge("test.flush.gauge", description="flush test")
@@ -100,3 +101,32 @@ def test_otlp_export_flushes_before_shutdown(httpserver, monkeypatch):
     assert len(requests_received) >= 1, (
         "No export received after force_flush() — data was silently dropped"
     )
+
+
+def test_otlp_export_sends_service_name(httpserver, monkeypatch):
+    """The payload must carry service.name, or Grafana labels it unknown_service."""
+    bodies: list[bytes] = []
+
+    def capture_and_ok(request):
+        bodies.append(request.get_data())
+        from werkzeug.wrappers import Response
+
+        return Response("", status=200)
+
+    httpserver.expect_request("/v1/metrics", method="POST").respond_with_handler(
+        capture_and_ok
+    )
+
+    monkeypatch.setenv("GRAFANA_CLOUD_OTLP_ENDPOINT", httpserver.url_for("/"))
+    monkeypatch.setenv("GRAFANA_CLOUD_BASIC_AUTH_HEADER", "Basic dGVzdA==")
+
+    provider = build_meter_provider("financial-news-monitor")
+    meter = provider.get_meter("test.service")
+    meter.create_gauge("test.service.gauge", description="service test").set(1.0)
+
+    provider.force_flush()
+    provider.shutdown()
+
+    assert bodies, "No request received — force_flush() did not export"
+    assert b"financial-news-monitor" in bodies[0]
+    assert b"unknown_service" not in bodies[0]

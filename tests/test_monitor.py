@@ -437,12 +437,13 @@ def test_main_sets_meter_provider(monkeypatch):
         patch("financial_news.monitor.load_config", return_value=fake_cfg),
         patch(
             "financial_news.monitor.build_meter_provider", return_value=fake_provider
-        ),
+        ) as mock_build,
         patch("financial_news.monitor.metrics") as mock_metrics,
         patch("financial_news.monitor.run", return_value=0),
     ):
         main()
 
+    mock_build.assert_called_once_with("financial-news-monitor")
     mock_metrics.set_meter_provider.assert_called_once_with(fake_provider)
 
 
