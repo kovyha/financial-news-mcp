@@ -30,12 +30,13 @@ Never move business logic (z-score math, classification thresholds, Finnhub fetc
 | [financial_news/config.py](financial_news/config.py) | Config loader — thresholds, baseline window, logging settings, and `LLMConfig` (Claude model, effort and fallback, from `[llm]`) |
 | [financial_news/sandbox.py](financial_news/sandbox.py) | Network sandbox for the server and monitor — host allowlist, launcher (`python -m financial_news.sandbox {server,monitor,prefetch-model}`), and the `require_sandbox()` startup check. Protected |
 | [financial_news/approved_models.py](financial_news/approved_models.py) | Sentiment models approved for use, each pinned to a Hugging Face commit. Protected |
-| [financial_news/briefing.py](financial_news/briefing.py) | Daily briefing agent — computes watchlist news and price z-scores and calls Claude (default Opus 5.5, set in `[llm]` config) to reason over elevated/unusual tickers, cross-referencing the two signals |
-| [financial_news/llm.py](financial_news/llm.py) | Claude tool-use loop shared by the briefing and diagnostic agents (LLM layer only) |
+| [financial_news/briefing.py](financial_news/briefing.py) | Daily briefing agent — computes watchlist news and price z-scores and calls Claude (default Opus 5.5, set in `[llm]` config) to reason over elevated/unusual tickers, cross-referencing the two signals. Skips Claude when nothing is flagged, and sends the run's token usage and estimated cost to Grafana Cloud for alerting (see [docs/grafana-alerts.md](docs/grafana-alerts.md)) |
+| [financial_news/llm.py](financial_news/llm.py) | Claude tool-use loop shared by the briefing and diagnostic agents (LLM layer only). Caches the conversation across turns, and logs and returns token usage and estimated cost (`_PRICES_PER_MTOK` — add the model there when changing `[llm]` model) |
 | [financial_news/enrichment.py](financial_news/enrichment.py) | Centralised enrichment pipeline — finBERT scoring, confidence-threshold article selection, and neutral-article filtering for elevated/unusual tickers; used by both the MCP server and the briefing agent |
 | [financial_news/sentiment.py](financial_news/sentiment.py) | finBERT sentiment scoring — deterministic preprocessing for the briefing; requires the `sentiment` dep group |
 | [financial_news/diagnostic.py](financial_news/diagnostic.py) | LLM-powered diagnostic agent — reads error logs, then calls Claude (default Opus 5.5, set in `[llm]` config) to identify root cause and propose a fix |
 | [financial_news/monitor.py](financial_news/monitor.py) | Daily monitoring agent — fetches watchlist news and price z-scores and exports OTel gauges to Grafana Cloud (independent failure handling per signal) |
+| [financial_news/telemetry.py](financial_news/telemetry.py) | Grafana Cloud metrics connection (`build_meter_provider`, `grafana_configured`) shared by the monitor and the briefing. Deterministic — no LLM imports |
 | [financial_news/snapshot.py](financial_news/snapshot.py) | Passes monitor stats to the briefing step within the same workflow run (date-keyed, atomic write) |
 | [financial_news/evaluation.py](financial_news/evaluation.py) | Baseline comparison harness — quantifies how much news-volume z-score, name-mention text-matching, and full-system LLM reasoning each contribute to detecting news-driven price moves, against a human-labeled historical dataset. Price z-score is reported separately as a threshold-sensitivity check only, not a peer baseline (the candidate pool is itself selected on that statistic, so evaluating it at the same cut would be circular). Also runs a component ablation (`run_ablation`) of the full system with paired McNemar tests, and a second-model label check (`cross-check`) as a batch job with a cost estimate first. See [docs/evaluation.md](docs/evaluation.md) |
 | [financial_news/eval_gate.py](financial_news/eval_gate.py) | Evaluation gate — fingerprints what the evaluation judge's verdicts depend on (prompts, verdict-path code, Claude request settings, library versions, pinned finBERT, labels, candidates); CI re-runs the judge when it changes and fails if verdicts got net worse by more than max(2, 2%). Protected |
@@ -50,6 +51,7 @@ Never move business logic (z-score math, classification thresholds, Finnhub fetc
 | [docs/engineering-standards.md](docs/engineering-standards.md) | Code quality expectations (ALWAYS / PREFER / AVOID / REQUIRE) |
 | [docs/developer-infra.md](docs/developer-infra.md) | Packaging, install, test strategy, common commands |
 | [docs/evaluation.md](docs/evaluation.md) | Baseline evaluation methodology — ground-truth labeling process, caveats, how to extend the labeled set |
+| [docs/grafana-alerts.md](docs/grafana-alerts.md) | Briefing cost metrics and the Grafana alert rules that watch them (cost jump, upward trend, caching broken, daily ceiling) |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Canonical validation workflow — run before every PR |
 
 ## Validation — always run before proposing changes
@@ -108,8 +110,12 @@ Running `python -m financial_news.server` directly exits with "Refusing to start
 ```bash
 FINNHUB_API_KEY=<key> \
 ANTHROPIC_API_KEY=<key> \
+GRAFANA_CLOUD_OTLP_ENDPOINT=<url> \
+GRAFANA_CLOUD_BASIC_AUTH_HEADER="Basic <token>" \
 uv run python -m financial_news.briefing
 ```
+
+The two Grafana variables are optional: without them the briefing runs as normal and skips sending its cost metrics.
 
 In CI the briefing runs as the second step of `.github/workflows/monitor.yaml` (after the monitor step), sharing the same runner. The briefing step is enabled by default and can be skipped via `workflow_dispatch` (`run_briefing: false`). Disabled by default until secrets are configured.
 

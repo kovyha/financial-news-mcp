@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 import anthropic
+import pytest
 from claude_mocks import response as _response
 from claude_mocks import text_block as _text_block
 from claude_mocks import tool_use_block
@@ -14,8 +15,27 @@ from financial_news.config import (  # noqa: F401
     EmailConfig,
     LLMConfig,
 )
+from financial_news.llm import ToolLoopResult
+
+
+@pytest.fixture(autouse=True)
+def _no_grafana(monkeypatch):
+    """Keep main() from exporting to a real Grafana Cloud set in the shell."""
+    monkeypatch.delenv("GRAFANA_CLOUD_OTLP_ENDPOINT", raising=False)
+    monkeypatch.delenv("GRAFANA_CLOUD_BASIC_AUTH_HEADER", raising=False)
+
 
 # ── Mock helpers ──────────────────────────────────────────────────────────────
+
+
+def _loop_result(text: str, cost_usd: float | None = 0.05) -> ToolLoopResult:
+    usage = {
+        "input_tokens": 1000,
+        "cache_creation_input_tokens": 3000,
+        "cache_read_input_tokens": 6000,
+        "output_tokens": 500,
+    }
+    return ToolLoopResult(text, 3, usage, cost_usd)
 
 
 def _tool_use_block(
@@ -264,6 +284,84 @@ def test_format_stats_falls_back_to_plain_when_all_unavailable():
     assert "Headline A" in text
 
 
+def _article(headline: str, label: str, score: float, summary: str = "") -> dict:
+    return {"headline": headline, "summary": summary, "label": label, "score": score}
+
+
+def test_format_stats_quiet_ticker_lists_top_headlines_non_neutral_first():
+    s = _sample_stats("XOM", "normal")
+    s["selected_articles"] = [
+        _article("Dividend declared", "neutral", 0.97, "Board declared $0.99."),
+        _article("Oil steady", "neutral", 0.95),
+        _article("Shareholder meeting set", "neutral", 0.93),
+        _article("Price target raised", "positive", 0.90, "Analyst lifts target."),
+        _article("Refinery outage", "negative", 0.88),
+    ]
+    text = briefing._format_stats_for_prompt([s])
+    assert "Price target raised" in text
+    assert "Refinery outage" in text
+    assert "Dividend declared" in text
+    assert "Oil steady" not in text
+    assert "Shareholder meeting set" not in text
+    assert "Analyst lifts target." not in text
+    assert "Board declared $0.99." not in text
+    assert text.index("Price target raised") < text.index("Refinery outage")
+    assert text.index("Refinery outage") < text.index("Dividend declared")
+
+
+def test_format_stats_quiet_ticker_ranks_unavailable_with_neutral():
+    s = _sample_stats("XOM", "normal")
+    s["selected_articles"] = [
+        _article("Dividend declared", "neutral", 0.97),
+        _article("Oil steady", "neutral", 0.95),
+        _article("Garbled label", "unavailable", 0.0),
+        _article("Price target raised", "positive", 0.90),
+    ]
+    text = briefing._format_stats_for_prompt([s])
+    assert "Price target raised" in text
+    assert "Garbled label" not in text
+
+
+def test_format_stats_flagged_ticker_lists_every_selected_article_with_summary():
+    s = _sample_stats("NVDA", "unusual")
+    s["selected_articles"] = [
+        _article(f"Story {i}", "neutral", 0.9, f"Summary {i}.") for i in range(5)
+    ]
+    text = briefing._format_stats_for_prompt([s])
+    for i in range(5):
+        assert f"Story {i}" in text
+        assert f"Summary {i}." in text
+
+
+def test_format_stats_price_flagged_ticker_counts_as_flagged():
+    s = _sample_stats("NVDA", "normal")
+    s["price"] = _sample_price_stats("NVDA", "unusual")
+    s["selected_articles"] = [_article(f"Story {i}", "neutral", 0.9) for i in range(5)]
+    text = briefing._format_stats_for_prompt([s])
+    assert "Story 4" in text
+
+
+def test_format_stats_quiet_ticker_plain_headlines_capped():
+    s = _sample_stats("XOM", "normal")
+    s["headlines"] = ["H1", "H2", "H3", "H4", "H5"]
+    text = briefing._format_stats_for_prompt([s])
+    assert "- H3" in text
+    assert "H4" not in text
+
+
+def test_run_briefing_prompt_says_quiet_tickers_are_trimmed(monkeypatch):
+    mock_client = MagicMock()
+    mock_client.beta.messages.create.return_value = _response(
+        "end_turn", [_text_block("ok")]
+    )
+    monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
+
+    briefing._run_briefing([_sample_stats()], _BASELINE, _DAYS, {}, {})
+
+    prompt = mock_client.beta.messages.create.call_args[1]["messages"][0]["content"]
+    assert "normal tickers list only their top 3 headlines" in prompt
+
+
 def test_format_stats_no_headlines():
     s = _sample_stats("TSLA", "normal")
     s["headlines"] = []
@@ -354,6 +452,74 @@ def test_format_headline_articles_empty():
     assert "No headline context available." in result
 
 
+def _scored(headline: str, label: str = "negative", **extra) -> dict:
+    return {"headline": headline, "summary": "", "label": label, "score": 0.9, **extra}
+
+
+def test_build_headlines_cache_drops_articles_already_in_prompt():
+    stats = {
+        **_sample_stats("NVDA", "unusual"),
+        "selected_articles": [_scored("Today A"), _scored("Today B")],
+        "selected_headline_articles": [
+            _scored("Today A", date="2024-06-03", source="Reuters"),
+            _scored("Earlier C", date="2024-06-01", source="Bloomberg"),
+        ],
+    }
+    result = briefing._build_headlines_cache([stats], _MAX)["NVDA"]
+    assert "Earlier C" in result
+    assert "Today A" not in result
+
+
+def test_build_headlines_cache_drops_plain_headlines_when_finbert_unavailable():
+    stats = {
+        **_sample_stats("NVDA", "unusual"),
+        "selected_articles": [_scored("Headline A", label="unavailable")],
+        "selected_headline_articles": [
+            _scored("Headline A", date="2024-06-03", source="Reuters"),
+            _scored("Earlier C", date="2024-06-01", source="Bloomberg"),
+        ],
+    }
+    result = briefing._build_headlines_cache([stats], _MAX)["NVDA"]
+    assert "Earlier C" in result
+    assert "Headline A" not in result
+
+
+def test_build_headlines_cache_says_so_when_everything_already_shown():
+    stats = {
+        **_sample_stats("NVDA", "unusual"),
+        "selected_articles": [_scored("Today A")],
+        "selected_headline_articles": [
+            _scored("Today A", date="2024-06-03", source="Reuters")
+        ],
+    }
+    assert briefing._build_headlines_cache([stats], _MAX)["NVDA"] == (
+        "No headlines beyond those already listed in the watchlist statistics."
+    )
+
+
+def test_build_headlines_cache_quiet_ticker_keeps_articles_not_in_its_top_three():
+    stats = {
+        **_sample_stats("XOM", "normal"),
+        "selected_articles": [_scored(f"Today {i}", label="neutral") for i in range(5)],
+        "selected_headline_articles": [
+            _scored(f"Today {i}", date="2024-06-03", source="Reuters") for i in range(5)
+        ],
+    }
+    result = briefing._build_headlines_cache([stats], _MAX)["XOM"]
+    assert "Today 0" not in result
+    assert "Today 3" in result
+
+
+def test_build_headlines_cache_skips_error_entries_and_handles_empty_window():
+    stats = [
+        {"ticker": "FAIL", "error": "fetch failed"},
+        _sample_stats("NVDA", "unusual"),
+    ]
+    assert briefing._build_headlines_cache(stats, _MAX) == {
+        "NVDA": "No headline context available."
+    }
+
+
 def test_format_headline_articles_truncates_to_max():
     articles = [
         {
@@ -382,7 +548,7 @@ def test_run_briefing_end_turn(monkeypatch):
     result = briefing._run_briefing(
         [_sample_stats("NVDA", "normal")], _BASELINE, _DAYS, {}, {}
     )
-    assert "Watchlist is quiet today." in result
+    assert "Watchlist is quiet today." in result.text
 
 
 def test_run_briefing_prompt_uses_configured_baseline_days(monkeypatch):
@@ -413,7 +579,7 @@ def test_run_briefing_unexpected_stop_reason(monkeypatch):
     monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
 
     result = briefing._run_briefing([_sample_stats()], _BASELINE, _DAYS, {}, {})
-    assert "max_tokens" in result
+    assert "max_tokens" in result.text
 
 
 def test_run_briefing_tool_use_loop(monkeypatch):
@@ -437,7 +603,7 @@ def test_run_briefing_tool_use_loop(monkeypatch):
     result = briefing._run_briefing(
         [_sample_stats("NVDA", "unusual")], _BASELINE, _DAYS, headlines_cache, {}
     )
-    assert "NVDA" in result
+    assert "NVDA" in result.text
 
     second_msgs = mock_client.beta.messages.create.call_args_list[1][1]["messages"]
     tool_result_content = second_msgs[-1]["content"][0]["content"]
@@ -464,7 +630,7 @@ def test_run_briefing_tool_use_loop_price_intraday(monkeypatch):
     result = briefing._run_briefing(
         [_sample_stats("NVDA", "unusual")], _BASELINE, _DAYS, {}, intraday_cache
     )
-    assert "NVDA" in result
+    assert "NVDA" in result.text
 
     second_msgs = mock_client.beta.messages.create.call_args_list[1][1]["messages"]
     tool_result_content = second_msgs[-1]["content"][0]["content"]
@@ -510,22 +676,214 @@ def test_main(monkeypatch, capsys):
     monkeypatch.setattr("financial_news.snapshot.read", lambda *a, **kw: None)
     monkeypatch.setattr(
         "financial_news.briefing._collect_stats",
-        lambda tickers: [_sample_stats("NVDA", "normal")],
+        lambda tickers: [_sample_stats("NVDA", "unusual")],
     )
     monkeypatch.setattr("financial_news.briefing.enrich_stats", lambda s, *a, **kw: s)
     monkeypatch.setattr(
         "financial_news.briefing._run_briefing",
-        lambda *a, **kw: "All quiet.",
+        lambda *a, **kw: _loop_result("NVDA is unusual."),
     )
     exit_code = briefing.main()
     assert exit_code == 0
     out = capsys.readouterr().out
     assert "DAILY BRIEFING" in out
-    assert "All quiet." in out
+    assert "NVDA is unusual." in out
+
+
+def test_main_skips_claude_when_nothing_flagged(monkeypatch, capsys):
+    monkeypatch.setattr("financial_news.snapshot.read", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        "financial_news.briefing._collect_stats",
+        lambda tickers: [
+            {**_sample_stats("NVDA", "normal"), "price": _sample_price_stats()},
+            {"ticker": "FAIL", "error": "fetch failed"},
+        ],
+    )
+    monkeypatch.setattr("financial_news.briefing.enrich_stats", lambda s, *a, **kw: s)
+    run_briefing = MagicMock()
+    monkeypatch.setattr("financial_news.briefing._run_briefing", run_briefing)
+    intraday = MagicMock()
+    monkeypatch.setattr("financial_news.briefing.fetch_intraday_prices", intraday)
+
+    assert briefing.main() == 0
+
+    run_briefing.assert_not_called()
+    intraday.assert_not_called()
+    out = capsys.readouterr().out
+    assert "All 1 tickers are normal: NVDA." in out
+    assert "Fetch failed: FAIL." in out
+
+
+def test_main_calls_claude_when_only_price_flagged(monkeypatch, capsys):
+    stats = {**_sample_stats("NVDA", "normal"), "price": _sample_price_stats()}
+    stats["price"]["classification"] = "unusual"
+    monkeypatch.setattr("financial_news.snapshot.read", lambda *a, **kw: [stats])
+    monkeypatch.setattr("financial_news.briefing.enrich_stats", lambda s, *a, **kw: s)
+    monkeypatch.setattr(
+        "financial_news.briefing.fetch_intraday_prices",
+        lambda ticker: {"bars": []},
+    )
+    monkeypatch.setattr(
+        "financial_news.briefing._run_briefing",
+        lambda *a, **kw: _loop_result("Price move."),
+    )
+
+    briefing.main()
+
+    assert "Price move." in capsys.readouterr().out
+
+
+def test_main_exports_usage_with_flagged_count(monkeypatch, capsys):
+    stats = [_sample_stats("NVDA", "unusual"), _sample_stats("F", "normal")]
+    monkeypatch.setattr("financial_news.snapshot.read", lambda *a, **kw: stats)
+    monkeypatch.setattr("financial_news.briefing.enrich_stats", lambda s, *a, **kw: s)
+    monkeypatch.setattr(
+        "financial_news.briefing.fetch_intraday_prices", lambda t: {"bars": []}
+    )
+    result = _loop_result("NVDA.")
+    monkeypatch.setattr("financial_news.briefing._run_briefing", lambda *a: result)
+    export = MagicMock()
+    monkeypatch.setattr("financial_news.briefing._export_usage", export)
+
+    briefing.main()
+
+    export.assert_called_once_with(result, 1)
+
+
+def test_main_exports_flagged_count_only_on_quiet_day(monkeypatch, capsys):
+    stats = [_sample_stats("F", "normal")]
+    monkeypatch.setattr("financial_news.snapshot.read", lambda *a, **kw: stats)
+    monkeypatch.setattr("financial_news.briefing.enrich_stats", lambda s, *a, **kw: s)
+    export = MagicMock()
+    monkeypatch.setattr("financial_news.briefing._export_usage", export)
+
+    briefing.main()
+
+    export.assert_called_once_with(None, 0)
+
+
+# ── _export_usage ─────────────────────────────────────────────────────────────
+
+
+def _gauges(monkeypatch) -> tuple[dict[str, MagicMock], MagicMock]:
+    """Capture the gauges _export_usage creates, keyed by metric name."""
+    monkeypatch.setenv("GRAFANA_CLOUD_OTLP_ENDPOINT", "https://otlp.example.com")
+    monkeypatch.setenv("GRAFANA_CLOUD_BASIC_AUTH_HEADER", "Basic abc")
+    gauges: dict[str, MagicMock] = {}
+    provider = MagicMock()
+    provider.get_meter.return_value.create_gauge.side_effect = (
+        lambda name, description: gauges.setdefault(name, MagicMock())
+    )
+    monkeypatch.setattr(
+        "financial_news.briefing.build_meter_provider", lambda: provider
+    )
+    return gauges, provider
+
+
+def test_export_usage_sends_tokens_cost_and_ratios(monkeypatch):
+    gauges, provider = _gauges(monkeypatch)
+
+    briefing._export_usage(_loop_result("x", cost_usd=0.06), flagged=2)
+
+    gauges["financial_news.briefing_flagged_tickers"].set.assert_called_once_with(2)
+    gauges["financial_news.briefing_tokens"].set.assert_any_call(
+        6000, {"type": "cache_read_input_tokens"}
+    )
+    assert gauges["financial_news.briefing_tokens"].set.call_count == 4
+    gauges["financial_news.briefing_turns"].set.assert_called_once_with(3)
+    gauges["financial_news.briefing_cache_hit_ratio"].set.assert_called_once_with(0.6)
+    gauges["financial_news.briefing_cost_usd"].set.assert_called_once_with(0.06)
+    gauges[
+        "financial_news.briefing_cost_per_flagged_ticker_usd"
+    ].set.assert_called_once_with(0.03)
+    provider.force_flush.assert_called_once()
+    provider.shutdown.assert_called_once()
+
+
+def test_export_usage_quiet_day_sends_flagged_count_only(monkeypatch):
+    gauges, _ = _gauges(monkeypatch)
+
+    briefing._export_usage(None, flagged=0)
+
+    assert set(gauges) == {"financial_news.briefing_flagged_tickers"}
+
+
+def test_export_usage_omits_cost_when_model_price_unknown(monkeypatch):
+    gauges, _ = _gauges(monkeypatch)
+
+    briefing._export_usage(_loop_result("x", cost_usd=None), flagged=1)
+
+    assert "financial_news.briefing_cost_usd" not in gauges
+    assert "financial_news.briefing_cost_per_flagged_ticker_usd" not in gauges
+    assert "financial_news.briefing_tokens" in gauges
+
+
+def test_export_usage_omits_cache_ratio_when_no_input(monkeypatch):
+    gauges, _ = _gauges(monkeypatch)
+    result = ToolLoopResult("x", 1, dict.fromkeys(_loop_result("x").usage, 0), 0.0)
+
+    briefing._export_usage(result, flagged=1)
+
+    assert "financial_news.briefing_cache_hit_ratio" not in gauges
+
+
+def test_export_usage_skipped_without_grafana_config(monkeypatch):
+    build = MagicMock()
+    monkeypatch.setattr("financial_news.briefing.build_meter_provider", build)
+
+    briefing._export_usage(_loop_result("x"), flagged=1)
+
+    build.assert_not_called()
+
+
+def test_export_usage_failure_does_not_raise(monkeypatch, caplog):
+    monkeypatch.setenv("GRAFANA_CLOUD_OTLP_ENDPOINT", "https://otlp.example.com")
+    monkeypatch.setenv("GRAFANA_CLOUD_BASIC_AUTH_HEADER", "Basic abc")
+    monkeypatch.setattr(
+        "financial_news.briefing.build_meter_provider",
+        MagicMock(side_effect=RuntimeError("boom")),
+    )
+
+    briefing._export_usage(_loop_result("x"), flagged=1)
+
+    assert "briefing usage export failed" in caplog.text
+
+
+# ── _quiet_briefing ───────────────────────────────────────────────────────────
+
+
+def test_quiet_briefing_lists_normal_tickers():
+    stats = [
+        {**_sample_stats("NVDA", "normal"), "price": _sample_price_stats()},
+        {**_sample_stats("F", "normal"), "price": _sample_price_stats("F")},
+    ]
+    assert briefing._quiet_briefing(stats) == (
+        "No elevated or unusual news-volume or price activity today."
+        " All 2 tickers are normal: NVDA, F."
+    )
+
+
+def test_quiet_briefing_notes_missing_price_and_failures():
+    stats = [
+        _sample_stats("NVDA", "normal"),
+        {"ticker": "FAIL", "error": "fetch failed"},
+    ]
+    text = briefing._quiet_briefing(stats)
+    assert "Price signal unavailable (news volume only): NVDA." in text
+    assert "Fetch failed: FAIL." in text
+
+
+def test_quiet_briefing_all_failed():
+    text = briefing._quiet_briefing([{"ticker": "FAIL", "error": "fetch failed"}])
+    assert text == "Fetch failed: FAIL."
+
+
+def test_quiet_briefing_empty():
+    assert briefing._quiet_briefing([]) == "No watchlist data available."
 
 
 def test_main_uses_snapshot_when_available(monkeypatch, capsys):
-    snap_stats = [_sample_stats("NVDA", "normal")]
+    snap_stats = [_sample_stats("NVDA", "unusual")]
     monkeypatch.setattr("financial_news.snapshot.read", lambda *a, **kw: snap_stats)
     collect_called = []
     monkeypatch.setattr(
@@ -535,7 +893,7 @@ def test_main_uses_snapshot_when_available(monkeypatch, capsys):
     monkeypatch.setattr("financial_news.briefing.enrich_stats", lambda s, *a, **kw: s)
     monkeypatch.setattr(
         "financial_news.briefing._run_briefing",
-        lambda *a, **kw: "From snapshot.",
+        lambda *a, **kw: _loop_result("From snapshot."),
     )
     briefing.main()
     assert not collect_called, (
@@ -554,7 +912,7 @@ def test_main_falls_back_to_collect_when_no_snapshot(monkeypatch, capsys):
     monkeypatch.setattr("financial_news.briefing.enrich_stats", lambda s, *a, **kw: s)
     monkeypatch.setattr(
         "financial_news.briefing._run_briefing",
-        lambda *a, **kw: "From collect.",
+        lambda *a, **kw: _loop_result("From collect."),
     )
     briefing.main()
     assert collect_called, "_collect_stats must be called when no snapshot is available"
@@ -576,7 +934,7 @@ def _patch_main(monkeypatch, stats, briefing_text="Analysis."):
     monkeypatch.setattr("financial_news.briefing.enrich_stats", lambda s, *a, **kw: s)
     monkeypatch.setattr(
         "financial_news.briefing._run_briefing",
-        lambda *a, **kw: briefing_text,
+        lambda *a, **kw: _loop_result(briefing_text),
     )
 
 

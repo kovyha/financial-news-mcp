@@ -6,7 +6,7 @@ requiring live Grafana Cloud credentials.
 
 What this covers that unit tests with MagicMock cannot:
 - The OTel SDK actually encodes gauge values into an OTLP payload.
-- _build_meter_provider() wires the endpoint URL and Authorization header correctly.
+- build_meter_provider() wires the endpoint URL and Authorization header correctly.
 - force_flush() triggers an export before shutdown (timing guarantee).
 
 What this does NOT cover:
@@ -16,7 +16,7 @@ What this does NOT cover:
 
 from opentelemetry import metrics as otel_metrics
 
-from financial_news.monitor import _build_meter_provider
+from financial_news.telemetry import build_meter_provider
 
 
 def test_otlp_export_posts_to_v1_metrics_path(httpserver, monkeypatch):
@@ -28,7 +28,7 @@ def test_otlp_export_posts_to_v1_metrics_path(httpserver, monkeypatch):
     monkeypatch.setenv("GRAFANA_CLOUD_OTLP_ENDPOINT", httpserver.url_for("/"))
     monkeypatch.setenv("GRAFANA_CLOUD_BASIC_AUTH_HEADER", "Basic dGVzdDp0ZXN0")
 
-    provider = _build_meter_provider()
+    provider = build_meter_provider()
     otel_metrics.set_meter_provider(provider)
     meter = otel_metrics.get_meter("test.monitor")
     gauge = meter.create_gauge("test.gauge", description="test")
@@ -58,7 +58,7 @@ def test_otlp_export_sends_authorization_header(httpserver, monkeypatch):
     monkeypatch.setenv("GRAFANA_CLOUD_OTLP_ENDPOINT", httpserver.url_for("/"))
     monkeypatch.setenv("GRAFANA_CLOUD_BASIC_AUTH_HEADER", expected_auth)
 
-    provider = _build_meter_provider()
+    provider = build_meter_provider()
     otel_metrics.set_meter_provider(provider)
     meter = otel_metrics.get_meter("test.auth")
     gauge = meter.create_gauge("test.auth.gauge", description="auth test")
@@ -88,7 +88,7 @@ def test_otlp_export_flushes_before_shutdown(httpserver, monkeypatch):
     monkeypatch.setenv("GRAFANA_CLOUD_OTLP_ENDPOINT", httpserver.url_for("/"))
     monkeypatch.setenv("GRAFANA_CLOUD_BASIC_AUTH_HEADER", "Basic dGVzdA==")
 
-    provider = _build_meter_provider()
+    provider = build_meter_provider()
     otel_metrics.set_meter_provider(provider)
     meter = otel_metrics.get_meter("test.flush")
     gauge = meter.create_gauge("test.flush.gauge", description="flush test")
