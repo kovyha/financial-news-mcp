@@ -44,8 +44,11 @@ Run via:
         uv run python -m financial_news.evaluation report
     FINNHUB_API_KEY=<key> ANTHROPIC_API_KEY=<key> \\
         uv run python -m financial_news.evaluation ablate
+    FINNHUB_API_KEY=<key> ANTHROPIC_API_KEY=<key> \\
+        uv run python -m financial_news.evaluation cross-check [--submit]
 """
 
+import argparse
 import json
 import logging
 import math
@@ -73,6 +76,9 @@ _LABELS_PATH = Path("eval/labels.json")
 _FULL_SYSTEM_VERDICTS_PATH = Path("eval/baseline3_reasoning.json")
 _FINBERT_ABLATION_PATH = Path("eval/finbert_ablation.json")
 _ABLATION_PATH = Path("eval/ablation.json")
+_CROSS_CHECK_PATH = Path("eval/cross_check.json")
+# The labelling rule: the human labeller and the cross-check prompt both use it.
+_CLASSIFICATION_RULE_PATH = Path("eval/classification_rule.md")
 
 _LABEL_VALUES = frozenset({"news_driven", "noise", "ambiguous"})
 
@@ -765,6 +771,294 @@ def _print_ablation(result: dict) -> None:
     print()
 
 
+# ── cross-check: second-model labelling ──────────────────────────────────────
+#
+# A second model labels rows from the same blind inputs a human labeller sees
+# (draft_label_inputs), one API request per row through the Message Batches API.
+# Each request carries only its own row, so the headlines are paid for once and
+# at the batch discount. Don't do this inside an agent session instead: the whole
+# conversation is re-sent every turn, which cost about 3.6 times as much on the
+# same model the one time it was done (see "Bulk LLM work" in CLAUDE.md).
+
+_CROSS_CHECK_MAX_TOKENS = 8000  # thinking + a one-line label
+# Assumed thinking + output per row for the "typical" estimate only. The submit
+# budget is checked against the worst case (every row uses max_tokens).
+_CROSS_CHECK_TYPICAL_OUTPUT_TOKENS = 1500
+_CROSS_CHECK_POLL_SECONDS = 30
+# Message Batches prices, USD per million tokens (input, output): half the
+# standard rate. Prices as of 2026-11-04, from Anthropic's published model
+# pricing; check them before relying on --max-usd, since a price rise makes the
+# budget check too lenient. A model missing here can't be submitted, because its
+# cost can't be bounded; add it from the current price list first.
+_BATCH_PRICES_PER_MTOK = {
+    "claude-fable-5-1": (5.0, 25.0),
+    "claude-opus-5-5": (2.0, 10.0),
+    "claude-opus-4-7": (2.5, 12.5),
+    "claude-sonnet-5-5": (1.0, 5.0),
+}
+_CROSS_CHECK_LABEL = re.compile(r"LABEL:\s*(news_driven|noise|ambiguous)", re.I)
+
+
+def _cross_check_system_prompt() -> str:
+    """Instructions for the second-model labeller, built around the same
+    classification rule file the human labeller follows.
+    """
+    return (
+        "You are labelling ground truth for an evaluation of a financial monitoring"
+        " system. You are given one stock's close-to-close return for one day and"
+        " every headline and summary in its news feed that day. Classify the move"
+        " with this rule.\n\n"
+        + _CLASSIFICATION_RULE_PATH.read_text().strip()
+        + "\n\nRespond with exactly one line in the form"
+        " 'LABEL: <news_driven|noise|ambiguous> | REASON: <one sentence>'."
+    )
+
+
+def _cross_check_prompt(candidate: dict) -> str:
+    inputs = draft_label_inputs(candidate)
+    lines = [
+        f"{i}. {h['headline']}" + (f"\n   {h['summary']}" if h["summary"] else "")
+        for i, h in enumerate(inputs["headlines"], 1)
+    ]
+    return (
+        f"Ticker: {inputs['ticker']}\nDate: {inputs['date']}\n"
+        f"Return: {inputs['return_pct']:+.2%}\n"
+        f"Headlines ({len(lines)}):\n" + ("\n".join(lines) or "(no headlines that day)")
+    )
+
+
+def _cross_check_id(candidate: dict) -> str:
+    """Batch custom_id for a row: letters, digits, '_' and '-' only."""
+    return re.sub(r"[^A-Za-z0-9_-]", "_", f"{candidate['ticker']}_{candidate['date']}")
+
+
+def cross_check_requests(candidates: list[dict], llm: LLMConfig) -> list[dict]:
+    """One Message Batches request per candidate, keyed by _cross_check_id."""
+    return [
+        {
+            "custom_id": _cross_check_id(c),
+            "params": {
+                "model": llm.model,
+                "max_tokens": _CROSS_CHECK_MAX_TOKENS,
+                "output_config": {"effort": llm.effort},
+                "system": _cross_check_system_prompt(),
+                "messages": [{"role": "user", "content": _cross_check_prompt(c)}],
+            },
+        }
+        for c in candidates
+    ]
+
+
+def _batch_cost_usd(model: str, input_tokens: int, output_tokens: int) -> float:
+    in_price, out_price = _BATCH_PRICES_PER_MTOK[model]
+    return (input_tokens * in_price + output_tokens * out_price) / 1_000_000
+
+
+def estimate_cross_check_cost(requests: list[dict], client) -> dict:
+    """Exact input tokens (count_tokens is free) and typical / worst-case cost.
+
+    Raises ValueError for a model without a known batch price.
+    """
+    model = requests[0]["params"]["model"] if requests else ""
+    if requests and model not in _BATCH_PRICES_PER_MTOK:
+        raise ValueError(
+            f"No batch price for {model!r}; add it to _BATCH_PRICES_PER_MTOK first."
+        )
+    input_tokens = sum(
+        client.messages.count_tokens(
+            model=r["params"]["model"],
+            system=r["params"]["system"],
+            messages=r["params"]["messages"],
+        ).input_tokens
+        for r in requests
+    )
+    n = len(requests)
+    return {
+        "model": model,
+        "rows": n,
+        "input_tokens": input_tokens,
+        "typical_usd": _batch_cost_usd(
+            model, input_tokens, n * _CROSS_CHECK_TYPICAL_OUTPUT_TOKENS
+        )
+        if n
+        else 0.0,
+        "worst_case_usd": _batch_cost_usd(
+            model, input_tokens, n * _CROSS_CHECK_MAX_TOKENS
+        )
+        if n
+        else 0.0,
+    }
+
+
+def collect_cross_check(
+    client,
+    batch_id: str,
+    candidates: list[dict],
+    labels: dict[str, Label],
+    poll_seconds: float = _CROSS_CHECK_POLL_SECONDS,
+) -> dict:
+    """Wait for *batch_id* to end, then pair each model label with the human one.
+
+    The batch's own results decide which rows and which model are reported, so
+    collecting later with --batch-id can't mismatch either. *candidates* only
+    needs to contain the batch's rows.
+    """
+    while True:
+        batch = client.messages.batches.retrieve(batch_id)
+        if batch.processing_status == "ended":
+            break
+        logger.info(
+            "cross-check batch=%s processing=%d succeeded=%d",
+            batch_id,
+            batch.request_counts.processing,
+            batch.request_counts.succeeded,
+        )
+        time.sleep(poll_seconds)
+
+    outcomes: dict[str, tuple[str | None, str]] = {}
+    input_tokens = output_tokens = 0
+    model = None
+    for result in client.messages.batches.results(batch_id):
+        if result.result.type != "succeeded":
+            outcomes[result.custom_id] = (None, f"request {result.result.type}")
+            continue
+        message = result.result.message
+        model = model or message.model
+        input_tokens += message.usage.input_tokens
+        output_tokens += message.usage.output_tokens
+        text = "\n".join(b.text for b in message.content if b.type == "text")
+        match = _CROSS_CHECK_LABEL.search(text)
+        outcomes[result.custom_id] = (match.group(1).lower() if match else None, text)
+
+    unknown_ids = sorted(set(outcomes) - {_cross_check_id(c) for c in candidates})
+    if unknown_ids:
+        logger.warning("cross-check results for unknown rows: %s", unknown_ids)
+    rows = []
+    for c in candidates:  # candidates.json order; batch results are unordered
+        if _cross_check_id(c) not in outcomes:
+            continue
+        model_label, reasoning = outcomes[_cross_check_id(c)]
+        human = labels.get(_label_key(c["ticker"], c["date"]))
+        human_label = human.label if human else None
+        rows.append(
+            {
+                "ticker": c["ticker"],
+                "date": c["date"],
+                "human_label": human_label,
+                "model_label": model_label,
+                "agrees": human_label is not None and model_label == human_label,
+                "reasoning": reasoning,
+            }
+        )
+    return {
+        "model": model,
+        "batch_id": batch_id,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "cost_usd": round(_batch_cost_usd(model, input_tokens, output_tokens), 4)
+        if model in _BATCH_PRICES_PER_MTOK
+        else None,
+        "rows": rows,
+    }
+
+
+def _print_cross_check(result: dict) -> None:
+    rows = result["rows"]
+    compared = [r for r in rows if r["human_label"] is not None]
+    disagreements = [r for r in compared if not r["agrees"]]
+    print(f"\nCROSS-CHECK — {result['model']}, {len(rows)} rows")
+    cost = result["cost_usd"]
+    print(
+        f"  tokens: {result['input_tokens']:,} in / {result['output_tokens']:,} out"
+        + (f", cost ${cost:.2f}" if cost is not None else "")
+    )
+    unparsed = sum(1 for r in rows if r["model_label"] is None)
+    if unparsed:
+        print(f"  {unparsed} row(s) without a label (failed or unparseable)")
+    if compared:
+        print(
+            f"  agrees with the human label on {len(compared) - len(disagreements)}"
+            f" of {len(compared)}"
+        )
+    for r in disagreements:
+        print(
+            f"  {r['ticker']:<6} {r['date']}  human={r['human_label']:<12}"
+            f" model={r['model_label']}"
+        )
+    print()
+
+
+def _cross_check_main(argv: list[str], cfg: Config) -> int:
+    parser = argparse.ArgumentParser(prog="evaluation cross-check")
+    parser.add_argument("--model", default=cfg.llm.model)
+    parser.add_argument(
+        "--only-unlabeled",
+        action="store_true",
+        help="label only candidates not yet in eval/labels.json (default: only"
+        " labelled ones)",
+    )
+    parser.add_argument(
+        "--submit", action="store_true", help="submit the batch (default: estimate)"
+    )
+    parser.add_argument(
+        "--max-usd",
+        type=float,
+        default=10.0,
+        help="refuse to submit if the worst-case cost exceeds this",
+    )
+    parser.add_argument(
+        "--batch-id",
+        help="collect a submitted batch; its rows and model come from the batch",
+    )
+    opts = parser.parse_args(argv)
+
+    labels = load_labels()
+    candidates = load_candidates()
+    client = anthropic.Anthropic()
+
+    if opts.batch_id is None:
+        if opts.only_unlabeled:
+            candidates = unlabeled_candidates(candidates, labels)
+        else:
+            candidates = [
+                c for c in candidates if _label_key(c["ticker"], c["date"]) in labels
+            ]
+        requests = cross_check_requests(
+            candidates, LLMConfig(model=opts.model, effort=cfg.llm.effort)
+        )
+        try:
+            estimate = estimate_cross_check_cost(requests, client)
+        except ValueError as exc:
+            print(exc)
+            return 1
+        print(
+            f"{estimate['rows']} rows, {estimate['input_tokens']:,} input tokens on"
+            f" {opts.model} (batch prices): typically ${estimate['typical_usd']:.2f},"
+            f" at most ${estimate['worst_case_usd']:.2f}."
+        )
+        if not opts.submit:
+            print("Estimate only, nothing submitted. Add --submit to run it.")
+            return 0
+        if estimate["worst_case_usd"] > opts.max_usd:
+            print(
+                f"Worst case exceeds --max-usd {opts.max_usd:.2f}; not submitted."
+                " Raise --max-usd to proceed."
+            )
+            return 1
+        batch = client.messages.batches.create(requests=requests)
+        opts.batch_id = batch.id
+        print(
+            f"Submitted batch {batch.id}. If interrupted, collect it later with"
+            f" --batch-id {batch.id} (results are kept for 29 days)."
+        )
+
+    result = collect_cross_check(client, opts.batch_id, candidates, labels)
+    _CROSS_CHECK_PATH.write_text(json.dumps(result, indent=2) + "\n")
+    _print_cross_check(result)
+    print(f"Wrote per-row labels to {_CROSS_CHECK_PATH}")
+    return 0
+
+
 def main() -> int:
     cfg = load_config()
     args = sys.argv[1:]
@@ -797,8 +1091,12 @@ def main() -> int:
         print(f"Wrote per-arm metrics and per-row verdicts to {_ABLATION_PATH}")
         return 0
 
+    if command == "cross-check":
+        return _cross_check_main(args[1:], cfg)
+
     print(
-        f"Unknown command: {command!r}. Use 'build-candidates', 'report' or 'ablate'."
+        f"Unknown command: {command!r}."
+        " Use 'build-candidates', 'report', 'ablate' or 'cross-check'."
     )
     return 1
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-04 — Second-model label check as a batch script
+
+- New `python -m financial_news.evaluation cross-check`. A second model labels rows from the same blind inputs as the human labeller (return plus every headline and summary), one request per row through the Message Batches API, and the command lists rows where it disagrees with `eval/labels.json`. It prints an exact-input-token cost estimate and spends nothing without `--submit`, and refuses if the worst case exceeds `--max-usd` (default $10). Results go to `eval/cross_check.json`.
+- The classification rule moves from `docs/evaluation.md` into `eval/classification_rule.md`, its only copy. The human labeller follows it and the `cross-check` prompt reads it, so the two can't drift apart. It now includes the after-close clarification (news after 4pm explains the next session) applied in the 2026-11-02 revision.
+- New rule in `CLAUDE.md`: agents must not do bulk LLM work row by row inside their own session. The 2026-11-02 label check (43 rows, Fable 5.1) was done that way and cost £10.13 (about $13.50). A typical batch run over all 53 labelled rows is estimated at $3.74 on Fable 5.1 or $1.49 on Opus 5.5.
+
 ## 2026-11-02 — Evaluation judge moves to Opus 5.5; ground-truth labels revised
 
 - The evaluation judge now uses the same Claude settings as the live agents (`[llm]`: `claude-opus-5-5`, effort `medium`, server-side fallback), so a change to the live model re-runs the evaluation gate. `max_tokens` rises from 300 to 16000 because Opus 5.5 always thinks and thinking counts toward the cap. The gate fingerprint records the full Claude request settings instead of the model name alone.

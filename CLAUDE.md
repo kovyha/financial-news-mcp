@@ -37,7 +37,7 @@ Never move business logic (z-score math, classification thresholds, Finnhub fetc
 | [financial_news/diagnostic.py](financial_news/diagnostic.py) | LLM-powered diagnostic agent — reads error logs, then calls Claude (default Opus 5.5, set in `[llm]` config) to identify root cause and propose a fix |
 | [financial_news/monitor.py](financial_news/monitor.py) | Daily monitoring agent — fetches watchlist news and price z-scores and exports OTel gauges to Grafana Cloud (independent failure handling per signal) |
 | [financial_news/snapshot.py](financial_news/snapshot.py) | Passes monitor stats to the briefing step within the same workflow run (date-keyed, atomic write) |
-| [financial_news/evaluation.py](financial_news/evaluation.py) | Baseline comparison harness — quantifies how much news-volume z-score, name-mention text-matching, and full-system LLM reasoning each contribute to detecting news-driven price moves, against a human-labeled historical dataset. Price z-score is reported separately as a threshold-sensitivity check only, not a peer baseline (the candidate pool is itself selected on that statistic, so evaluating it at the same cut would be circular). Also runs a component ablation (`run_ablation`) of the full system with paired McNemar tests. See [docs/evaluation.md](docs/evaluation.md) |
+| [financial_news/evaluation.py](financial_news/evaluation.py) | Baseline comparison harness — quantifies how much news-volume z-score, name-mention text-matching, and full-system LLM reasoning each contribute to detecting news-driven price moves, against a human-labeled historical dataset. Price z-score is reported separately as a threshold-sensitivity check only, not a peer baseline (the candidate pool is itself selected on that statistic, so evaluating it at the same cut would be circular). Also runs a component ablation (`run_ablation`) of the full system with paired McNemar tests, and a second-model label check (`cross-check`) as a batch job with a cost estimate first. See [docs/evaluation.md](docs/evaluation.md) |
 | [financial_news/eval_gate.py](financial_news/eval_gate.py) | Evaluation gate — fingerprints what the evaluation judge's verdicts depend on (prompts, verdict-path code, Claude request settings, library versions, pinned finBERT, labels, candidates); CI re-runs the judge when it changes and fails if verdicts got net worse by more than max(2, 2%). Protected |
 | [config.example.toml](config.example.toml) | Copy to `config.toml` to customize thresholds, logging, and the Claude model/effort (`[llm]`) |
 
@@ -77,6 +77,12 @@ Agent definition: [.claude/agents/pre-commit.md](.claude/agents/pre-commit.md)
 The agent runs: lint → auto-fix → full test suite → secrets scan → coverage check → documentation currency check.
 
 Documentation currency check must verify that any affected docs (`README.md`, `CLAUDE.md`, `docs/*.md`, `CONTRIBUTING.md`) reflect the change.
+
+### Bulk LLM work — never inside an agent session
+
+An agent must never label, classify, summarise or otherwise process a dataset row by row inside its own session (for example, reading the evaluation candidates' headlines into context to label them). The whole conversation is re-sent on every turn, so the data is paid for again on every row. Labelling 43 evaluation rows this way on Fable 5.1 cost £10.13 (about $13.50). A typical batch run over all 53 labelled rows is estimated at $3.74 on Fable 5.1 (roughly a quarter of that) or $1.49 on Opus 5.5.
+
+Do it as a script instead: one API request per row, through the Message Batches API, with a cost estimate printed before anything is spent. For labels, that script is `python -m financial_news.evaluation cross-check`. If no script exists for the task, write one and show the user its estimate; don't fall back to doing it in-session, even when asked to "just do it here". Tell the user the cost first and let them decide.
 
 ## Protected files — require explicit human instruction to modify
 
@@ -141,6 +147,11 @@ FINNHUB_API_KEY=<key> ANTHROPIC_API_KEY=<key> \
 # Component ablation (Z=news z, F=finBERT, L=Claude) -> eval/ablation.json.
 FINNHUB_API_KEY=<key> ANTHROPIC_API_KEY=<key> \
     uv run python -m financial_news.evaluation ablate
+
+# Second-model label check: prints the cost estimate only; --submit runs it as a batch
+# and writes eval/cross_check.json. Add --model, --only-unlabeled or --max-usd as needed.
+FINNHUB_API_KEY=<key> ANTHROPIC_API_KEY=<key> \
+    uv run python -m financial_news.evaluation cross-check
 ```
 
 After changing anything the evaluation fingerprints (see "Evaluation gate" in
