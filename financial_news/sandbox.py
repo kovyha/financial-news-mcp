@@ -98,9 +98,18 @@ def build_settings(target: str, environ: dict[str, str]) -> dict:
 
 
 def write_settings(target: str, environ: dict[str, str]) -> Path:
-    """Write target's srt settings to a fixed temp path, replaced on each launch."""
+    """Write target's srt settings to a fixed temp path, replaced on each launch.
+
+    Also creates every write-allowed directory: on Linux the sandbox can only
+    grant writes to paths that already exist, and the child can't create them
+    itself because their parents are read-only (e.g. the gitignored logs/ dir
+    on a fresh checkout).
+    """
+    settings = build_settings(target, environ)
+    for allowed in settings["filesystem"]["allowWrite"]:
+        Path(allowed).mkdir(parents=True, exist_ok=True)
     path = Path(tempfile.gettempdir()) / f"financial-news-srt-{target}.json"
-    path.write_text(json.dumps(build_settings(target, environ)))
+    path.write_text(json.dumps(settings))
     return path
 
 
