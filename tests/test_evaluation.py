@@ -991,3 +991,304 @@ def test_predict_full_system_defaults_to_llm_config_defaults(monkeypatch):
     assert mock_client.beta.messages.create.call_args.kwargs["model"] == (
         LLMConfig().model
     )
+
+
+# ── cross-check ──────────────────────────────────────────────────────────────
+
+
+def _usage(input_tokens: int = 100, output_tokens: int = 20) -> MagicMock:
+    usage = MagicMock()
+    usage.input_tokens = input_tokens
+    usage.output_tokens = output_tokens
+    return usage
+
+
+def _batch_result(
+    custom_id: str,
+    text: str | None,
+    kind: str = "succeeded",
+    model: str = "claude-opus-5-5",
+):
+    result = MagicMock()
+    result.custom_id = custom_id
+    result.result.type = kind
+    if text is not None:
+        message = _text_response(text)
+        message.usage = _usage()
+        message.model = model
+        result.result.message = message
+    return result
+
+
+def _cross_check_client(results: list, statuses=("ended",)) -> MagicMock:
+    client = MagicMock()
+    client.messages.count_tokens.return_value.input_tokens = 1000
+    batches = []
+    for status in statuses:
+        batch = MagicMock(processing_status=status)
+        batch.request_counts.processing = 1
+        batch.request_counts.succeeded = 0
+        batches.append(batch)
+    client.messages.batches.retrieve.side_effect = batches
+    client.messages.batches.results.return_value = results
+    client.messages.batches.create.return_value.id = "msgbatch_1"
+    return client
+
+
+def _labels(*items: tuple[str, str, str]) -> dict:
+    return {
+        f"{t}:{d}": evaluation.Label(ticker=t, date=d, label=lab) for t, d, lab in items
+    }
+
+
+def test_cross_check_prompt_is_blind_to_signals():
+    """Same inputs as a human labeller: no z-scores or classifications."""
+    prompt = evaluation._cross_check_prompt(
+        _make_candidate(price_z=9.87, news_z=6.54, return_pct=-0.0352)
+    )
+    assert "Return: -3.52%" in prompt
+    assert "Headlines (1):\n1. Big news\n   details" in prompt
+    assert "9.87" not in prompt and "6.54" not in prompt
+    assert "unusual" not in prompt
+
+
+def test_cross_check_system_prompt_reads_the_rule_file(monkeypatch, tmp_path):
+    """The rule has one copy, eval/classification_rule.md; the prompt reads it."""
+    rule = tmp_path / "rule.md"
+    rule.write_text("RULE TEXT FROM FILE\n")
+    monkeypatch.setattr(evaluation, "_CLASSIFICATION_RULE_PATH", rule)
+
+    prompt = evaluation._cross_check_system_prompt()
+
+    assert "with this rule.\n\nRULE TEXT FROM FILE\n\nRespond" in prompt
+    assert "LABEL: <news_driven|noise|ambiguous>" in prompt
+
+
+def test_classification_rule_file_exists():
+    assert evaluation._CLASSIFICATION_RULE_PATH.read_text().strip()
+
+
+def test_cross_check_prompt_with_no_headlines():
+    prompt = evaluation._cross_check_prompt(_make_candidate(articles=[]))
+    assert "(no headlines that day)" in prompt
+
+
+def test_cross_check_requests_one_per_row_with_safe_ids():
+    candidates = [_make_candidate(), _make_candidate(ticker="BRK.B")]
+    requests = evaluation.cross_check_requests(
+        candidates, LLMConfig(model="claude-fable-5-1", effort="high")
+    )
+    assert [r["custom_id"] for r in requests] == [
+        "NVDA_2026-01-15",
+        "BRK_B_2026-01-15",
+    ]
+    params = requests[0]["params"]
+    assert params["model"] == "claude-fable-5-1"
+    assert params["output_config"] == {"effort": "high"}
+    assert params["max_tokens"] == evaluation._CROSS_CHECK_MAX_TOKENS
+    assert len(params["messages"]) == 1
+
+
+def test_estimate_cross_check_cost_uses_batch_prices():
+    client = _cross_check_client([])
+    requests = evaluation.cross_check_requests(
+        [_make_candidate(), _make_candidate(day="2026-01-16")],
+        LLMConfig(model="claude-opus-5-5"),
+    )
+    estimate = evaluation.estimate_cross_check_cost(requests, client)
+
+    assert estimate["input_tokens"] == 2000
+    in_price, out_price = evaluation._BATCH_PRICES_PER_MTOK["claude-opus-5-5"]
+    assert estimate["worst_case_usd"] == pytest.approx(
+        (2000 * in_price + 2 * evaluation._CROSS_CHECK_MAX_TOKENS * out_price) / 1e6
+    )
+    assert estimate["typical_usd"] < estimate["worst_case_usd"]
+
+
+def test_estimate_cross_check_cost_rejects_unpriced_model():
+    requests = evaluation.cross_check_requests(
+        [_make_candidate()], LLMConfig(model="claude-unknown-9")
+    )
+    with pytest.raises(ValueError, match="No batch price"):
+        evaluation.estimate_cross_check_cost(requests, _cross_check_client([]))
+
+
+def test_estimate_cross_check_cost_with_no_rows():
+    estimate = evaluation.estimate_cross_check_cost([], _cross_check_client([]))
+    assert estimate["rows"] == 0
+    assert estimate["worst_case_usd"] == 0.0
+
+
+def test_collect_cross_check_pairs_labels_and_waits(monkeypatch, caplog):
+    sleeps = []
+    monkeypatch.setattr(evaluation.time, "sleep", sleeps.append)
+    candidates = [
+        _make_candidate(day="2026-01-15"),
+        _make_candidate(day="2026-01-16"),
+        _make_candidate(day="2026-01-17"),
+        _make_candidate(day="2026-01-18"),
+    ]
+    client = _cross_check_client(
+        [  # batch results come back unordered
+            _batch_result("NVDA_2026-01-18", None, kind="errored"),
+            _batch_result("NVDA_2026-01-16", "label: Ambiguous | REASON: mixed"),
+            _batch_result("NVDA_2026-01-15", "LABEL: news_driven | REASON: earnings"),
+            _batch_result("NVDA_2026-01-17", "I can't tell"),
+            _batch_result("GONE_2026-01-19", "LABEL: noise | REASON: x"),
+        ],
+        statuses=("in_progress", "ended"),
+    )
+    labels = _labels(
+        ("NVDA", "2026-01-15", "news_driven"),
+        ("NVDA", "2026-01-16", "noise"),
+    )
+
+    result = evaluation.collect_cross_check(
+        client, "msgbatch_1", candidates, labels, poll_seconds=5
+    )
+
+    assert sleeps == [5]
+    assert "GONE_2026-01-19" in caplog.text
+    assert result["model"] == "claude-opus-5-5"
+    rows = result["rows"]
+    assert [r["date"] for r in rows] == [c["date"] for c in candidates]
+    assert [r["model_label"] for r in rows] == [
+        "news_driven",
+        "ambiguous",
+        None,
+        None,
+    ]
+    assert [r["agrees"] for r in rows] == [True, False, False, False]
+    assert rows[2]["human_label"] is None
+    assert rows[3]["reasoning"] == "request errored"
+    assert result["input_tokens"] == 400 and result["output_tokens"] == 80
+    assert result["cost_usd"] == pytest.approx(
+        evaluation._batch_cost_usd("claude-opus-5-5", 400, 80), abs=1e-4
+    )
+
+
+def test_collect_cross_check_unpriced_model_has_no_cost():
+    client = _cross_check_client(
+        [_batch_result("NVDA_2026-01-15", "LABEL: noise | R", model="claude-new-9")]
+    )
+    result = evaluation.collect_cross_check(client, "b", [_make_candidate()], {})
+    assert result["model"] == "claude-new-9"
+    assert result["cost_usd"] is None
+
+
+def test_collect_cross_check_all_failed_has_no_model():
+    client = _cross_check_client([_batch_result("NVDA_2026-01-15", None, "expired")])
+    result = evaluation.collect_cross_check(client, "b", [_make_candidate()], {})
+    assert result["model"] is None and result["cost_usd"] is None
+    assert result["rows"][0]["reasoning"] == "request expired"
+
+
+def _setup_cross_check_main(monkeypatch, tmp_path, client):
+    candidates = [_make_candidate(day="2026-01-15"), _make_candidate(day="2026-01-16")]
+    monkeypatch.setattr(evaluation, "load_candidates", lambda: candidates)
+    monkeypatch.setattr(
+        evaluation,
+        "load_labels",
+        lambda: _labels(("NVDA", "2026-01-15", "noise")),
+    )
+    monkeypatch.setattr(anthropic, "Anthropic", lambda: client)
+    out_path = tmp_path / "cross_check.json"
+    monkeypatch.setattr(evaluation, "_CROSS_CHECK_PATH", out_path)
+    return out_path
+
+
+def test_main_cross_check_estimates_without_submitting(monkeypatch, tmp_path, capsys):
+    client = _cross_check_client([])
+    out_path = _setup_cross_check_main(monkeypatch, tmp_path, client)
+    monkeypatch.setattr(sys, "argv", ["evaluation.py", "cross-check"])
+
+    assert evaluation.main() == 0
+    out = capsys.readouterr().out
+    assert "1 rows, 1,000 input tokens" in out
+    assert "nothing submitted" in out
+    client.messages.batches.create.assert_not_called()
+    assert not out_path.exists()
+
+
+def test_main_cross_check_refuses_over_budget(monkeypatch, tmp_path, capsys):
+    client = _cross_check_client([])
+    _setup_cross_check_main(monkeypatch, tmp_path, client)
+    monkeypatch.setattr(
+        sys, "argv", ["evaluation.py", "cross-check", "--submit", "--max-usd", "0.01"]
+    )
+
+    assert evaluation.main() == 1
+    assert "exceeds --max-usd" in capsys.readouterr().out
+    client.messages.batches.create.assert_not_called()
+
+
+def test_main_cross_check_rejects_unpriced_model(monkeypatch, tmp_path, capsys):
+    client = _cross_check_client([])
+    _setup_cross_check_main(monkeypatch, tmp_path, client)
+    monkeypatch.setattr(
+        sys, "argv", ["evaluation.py", "cross-check", "--model", "claude-x"]
+    )
+
+    assert evaluation.main() == 1
+    assert "No batch price" in capsys.readouterr().out
+
+
+def test_main_cross_check_submits_and_writes(monkeypatch, tmp_path, capsys):
+    client = _cross_check_client(
+        [
+            _batch_result(
+                "NVDA_2026-01-16", "LABEL: noise | REASON: x", model="claude-fable-5-1"
+            )
+        ]
+    )
+    out_path = _setup_cross_check_main(monkeypatch, tmp_path, client)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "evaluation.py",
+            "cross-check",
+            "--only-unlabeled",
+            "--submit",
+            "--model",
+            "claude-fable-5-1",
+        ],
+    )
+
+    assert evaluation.main() == 0
+    requests = client.messages.batches.create.call_args.kwargs["requests"]
+    assert [r["custom_id"] for r in requests] == ["NVDA_2026-01-16"]
+    written = json.loads(out_path.read_text())
+    assert written["batch_id"] == "msgbatch_1"
+    assert written["rows"][0]["model_label"] == "noise"
+    out = capsys.readouterr().out
+    assert "Submitted batch msgbatch_1" in out
+    assert "CROSS-CHECK — claude-fable-5-1, 1 rows" in out
+
+
+def test_main_cross_check_collects_existing_batch(monkeypatch, tmp_path, capsys):
+    """Rows and model come from the batch, not from --model or --only-unlabeled."""
+    client = _cross_check_client(
+        [
+            _batch_result(
+                "NVDA_2026-01-15", "LABEL: news_driven | R", model="claude-fable-5-1"
+            ),
+            _batch_result("NVDA_2026-01-16", None, kind="errored"),
+        ]
+    )
+    out_path = _setup_cross_check_main(monkeypatch, tmp_path, client)
+    monkeypatch.setattr(
+        sys, "argv", ["evaluation.py", "cross-check", "--batch-id", "msgbatch_9"]
+    )
+
+    assert evaluation.main() == 0
+    client.messages.batches.create.assert_not_called()
+    client.messages.count_tokens.assert_not_called()
+    written = json.loads(out_path.read_text())
+    assert written["batch_id"] == "msgbatch_9"
+    assert written["model"] == "claude-fable-5-1"
+    assert len(written["rows"]) == 2
+    out = capsys.readouterr().out
+    assert "1 row(s) without a label" in out
+    assert "agrees with the human label on 0 of 1" in out
+    assert "human=noise" in out

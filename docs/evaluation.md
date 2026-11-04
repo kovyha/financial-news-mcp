@@ -68,17 +68,12 @@ LLM output — so the label isn't drafted from the very signals being evaluated.
 Uncertain cases are marked `"ambiguous"` and excluded from scoring rather than forced
 into a binary call.
 
-**Classification rule** (news_driven vs noise vs ambiguous): a candidate is
-`news_driven` only if a ticker-specific story is the narrative multiple headlines
-actually converge on to explain the move — not merely a ticker-specific headline that
-exists somewhere in that day's pile. Sector/peer spillover (a *different* company's
-earnings lifting the whole sector) is `noise` even though it's real news, because the
-news is about a different company. A ticker-specific item that contradicts the move's
-direction (e.g. an analyst upgrade on a down day) doesn't get credited as the driver
-either. Genuinely mixed evidence — a real ticker-specific item *and* a dominant
-macro/sector driver the same day — is `ambiguous`, not resolved by which side has more
-headlines; a minority but substantive contradiction is enough to make a call
-`ambiguous` rather than forcing a majority-vote resolution.
+**Classification rule** (news_driven vs noise vs ambiguous): see
+[eval/classification_rule.md](../eval/classification_rule.md). It is the only copy:
+the `cross-check` prompt reads the same file, so the second model always applies the
+rule as written there. Its last paragraph (news after the 4pm close explains the
+next session) was applied in the 2026-11-02 label revision below and written into
+the rule on 2026-11-04.
 
 **Limitations, stated plainly:**
 
@@ -158,11 +153,46 @@ FINNHUB_API_KEY=<key> ANTHROPIC_API_KEY=<key> \
 # 4. (Optional) component ablation of the full system — see "Component ablation".
 FINNHUB_API_KEY=<key> ANTHROPIC_API_KEY=<key> \
     uv run python -m financial_news.evaluation ablate
+
+# 5. (Optional) second-model label check — see "Second-model label check".
+FINNHUB_API_KEY=<key> ANTHROPIC_API_KEY=<key> \
+    uv run python -m financial_news.evaluation cross-check [--submit]
 ```
 
 `report` requires `uv sync --group sentiment` (finBERT — used by the full system's
 article selection, not as a standalone baseline; see below) and `ANTHROPIC_API_KEY`
 (the full system — one Claude call per labeled candidate).
+
+## Second-model label check
+
+`cross-check` has a second model label rows from the same blind inputs a human
+labeller sees (`draft_label_inputs`: the return and every headline and summary, no
+z-scores) and lists the rows where its label differs from `eval/labels.json`. It
+surfaces rows worth re-reading, as in the 2026-11-02 revision above. It doesn't
+replace the human label.
+
+- By default it labels every row in `eval/labels.json`, including `ambiguous` ones.
+  `--only-unlabeled` labels only candidates without a label instead: a first pass on
+  a fresh pool, compared against nothing.
+- The model defaults to `[llm]`; choose another with `--model`. Its instructions
+  include `eval/classification_rule.md` as it stands when the batch is submitted.
+- **Nothing is spent without `--submit`.** Without it, the command counts the input
+  tokens exactly (the token-counting endpoint is free) and prints a typical and a
+  worst-case cost. With `--submit`, it refuses if the worst case exceeds `--max-usd`
+  (default $10), or if the model has no known batch price.
+- Each row is its own request in one Message Batches job, at half the standard
+  price. If the run is interrupted, `--batch-id <id>` collects the results later;
+  the rows and model reported come from the batch itself.
+  Results go to `eval/cross_check.json`, with token usage and the actual cost.
+
+On the current 53 labelled rows (350k input tokens), a typical run is estimated at
+$1.49 on Opus 5.5 and $3.74 on Fable 5.1. The Fable worst case ($12.35) is over the
+default budget, so pass `--max-usd 13` to run it.
+
+The 2026-11-02 check (43 rows, Fable 5.1) was done inside an agent session instead.
+That re-sent the whole conversation on every turn and cost £10.13 (about $13.50),
+roughly 3.6 times a typical Fable 5.1 batch run over more rows. Bulk LLM work like
+this belongs in a script; see "Bulk LLM work" in [CLAUDE.md](../CLAUDE.md).
 
 ## Evaluation gate (CI)
 
